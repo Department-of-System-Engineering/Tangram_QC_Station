@@ -38,10 +38,25 @@ def interior_mask(shape, contour):
     return cv2.erode(mask, np.ones((5, 5), np.uint8))
 
 
-def extract(frame, base_hsv, min_base_fraction=0.03):
+def repair_mask(mask, segmentation=None):
+    """Close small gaps; optional short bridges require observed color at both ends."""
+    config = segmentation or {}
+    size = config.get("close_kernel", 3)
+    repaired = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((size, size), np.uint8))
+    if config.get("bridges"):
+        if config["frame_size"] != [mask.shape[1], mask.shape[0]]:
+            raise ValueError("Bridge calibration requires the original image resolution")
+        support = cv2.dilate(mask, np.ones((5, 5), np.uint8))
+        for a, b in config["bridges"]:
+            if support[a[1], a[0]] and support[b[1], b[0]]:
+                cv2.line(repaired, tuple(a), tuple(b), 255, 3)
+    return repaired
+
+
+def extract(frame, base_hsv, min_base_fraction=0.03, segmentation=None):
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
     mask = hsv_mask(hsv, base_hsv)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
+    mask = repair_mask(mask, segmentation)
     contours, hierarchy = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
     if hierarchy is None:
         return None, [], mask
@@ -73,8 +88,8 @@ def overlap(a, b):
     return float(np.count_nonzero(a & b) / max(1, np.count_nonzero(a | b)))
 
 
-def create_profile(frame, bounds, name="tangram", expected_count=7):
-    base, parts, _ = extract(frame, bounds)
+def create_profile(frame, bounds, name="tangram", expected_count=7, segmentation=None):
+    base, parts, _ = extract(frame, bounds, segmentation=segmentation)
     if base is None or len(parts) != expected_count:
         raise ValueError(f"Need a complete base and exactly {expected_count} separate parts; found {len(parts)}")
     box = cv2.boundingRect(base)
@@ -85,6 +100,8 @@ def create_profile(frame, bounds, name="tangram", expected_count=7):
                "thresholds": {"area_relative": 0.25, "position": 0.08,
                               "shape": 0.20, "overlap": 0.65, "color_fraction": 0.65},
                "parts": []}
+    if segmentation is not None:
+        profile["segmentation"] = segmentation
     for i, c in enumerate(parts):
         pixels = hsv[interior_mask(frame.shape, c) > 0]
         profile["parts"].append({"name": f"part_{i + 1}",
@@ -104,6 +121,21 @@ def validate_profile(p):
         if (a[0, 1:] > a[1, 1:]).any():
             raise ValueError("Invalid saturation/value interval")
     bounds(p["base_hsv"])
+    config = p.get("segmentation", {})
+    size = config.get("close_kernel", 3)
+    if type(size) is not int or size not in range(1, 16, 2):
+        raise ValueError("Closing kernel must be odd and between 1 and 15")
+    bridges = config.get("bridges", [])
+    if not isinstance(bridges, list) or len(bridges) > 20:
+        raise ValueError("At most 20 repair bridges allowed")
+    if bridges:
+        dims = config.get("frame_size", [])
+        if len(dims) != 2 or any(type(v) is not int or not 1 <= v <= 4096 for v in dims):
+            raise ValueError("Invalid bridge frame size")
+        for bridge in bridges:
+            a = np.asarray(bridge)
+            if a.shape != (2, 2) or not np.isfinite(a).all() or (a != np.floor(a)).any() or (a < 0).any() or (a >= dims).any() or not 0 < np.linalg.norm(a[0] - a[1]) <= 40:
+                raise ValueError("Repair bridges must be inside the image and at most 40 pixels long")
     if not np.isfinite(p["aspect_ratio"]) or p["aspect_ratio"] <= 0:
         raise ValueError("Invalid base aspect ratio")
     for c in [p["base_contour"]] + [item["contour"] for item in p["parts"]]:
@@ -131,7 +163,7 @@ def profile_id(profile):
 
 
 def inspect(frame, profile):
-    base, candidates, mask = extract(frame, profile["base_hsv"])
+    base, candidates, mask = extract(frame, profile["base_hsv"], segmentation=profile.get("segmentation"))
     result = {"base_present": base is not None, "passed": False,
               "found_count": len(candidates), "parts": [], "reasons": []}
     if base is None:

@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import cv2
 import numpy as np
 
-from qc_station.vision import create_profile, inspect, learn_color, hsv_mask, validate_profile
+from qc_station.vision import create_profile, inspect, learn_color, hsv_mask, validate_profile, extract, repair_mask
 from qc_station.session import InspectionWindow
 from qc_station.storage import ResultStore
 from qc_station.__main__ import run
@@ -71,6 +71,45 @@ class VisionTests(unittest.TestCase):
         self.profile["thresholds"]["overlap"] = float("nan")
         with self.assertRaises(ValueError):
             validate_profile(self.profile)
+
+    def test_two_broken_boundaries_recovered_in_calibration_and_inspection(self):
+        bounds = self.profile["base_hsv"]
+        for x in (110, 240):
+            cv2.line(self.image, (x, 48), (x, 106), (0, 0, 0), 9)
+        self.assertEqual(len(extract(self.image, bounds)[1]), 5)
+        config = {"close_kernel": 3, "frame_size": [640, 480],
+                  "bridges": [[[102, 80], [118, 80]], [[232, 80], [248, 80]]]}
+        profile = create_profile(self.image, bounds, segmentation=config)
+        validate_profile(profile)
+        self.assertTrue(inspect(self.image, profile)[0]["passed"])
+        self.image[90:180, 90:170] = self.image[60, 70]
+        self.assertFalse(inspect(self.image, profile)[0]["passed"])
+        self.assertFalse(inspect(np.zeros_like(self.image), profile)[0]["passed"])
+
+    def test_closing_adjustment_is_used_in_inspection(self):
+        for x in (110, 240):
+            cv2.line(self.image, (x, 48), (x, 106), (0, 0, 0), 5)
+        config = {"close_kernel": 9, "bridges": []}
+        profile = create_profile(self.image, self.profile["base_hsv"], segmentation=config)
+        validate_profile(profile)
+        self.assertTrue(inspect(self.image, profile)[0]["passed"])
+
+    def test_bridge_requires_both_visible_endpoints_and_same_resolution(self):
+        mask = np.zeros((100, 100), np.uint8)
+        mask[40:45, 20:25] = 255
+        config = {"close_kernel": 3, "frame_size": [100, 100], "bridges": [[[22, 42], [40, 42]]]}
+        self.assertEqual(repair_mask(mask, config)[42, 30], 0)
+        mask[40:45, 38:43] = 255
+        self.assertEqual(repair_mask(mask, config)[42, 30], 255)
+        with self.assertRaises(ValueError):
+            repair_mask(np.zeros((50, 50), np.uint8), config)
+
+    def test_invalid_bridge_configuration_rejected(self):
+        for config in ({"close_kernel": 4}, {"bridges": [[[0, 0], [100, 0]]], "frame_size": [640, 480]},
+                       {"bridges": [[[-1, 20], [10, 20]]], "frame_size": [640, 480]}):
+            self.profile["segmentation"] = config
+            with self.assertRaises(ValueError):
+                validate_profile(self.profile)
 
 
 def observation(passed=True, present=True):

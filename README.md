@@ -58,6 +58,34 @@ megadva, ezért a kompatibilitás és a sebesség helyszíni ellenőrzést igén
    belső színe automatikusan bekerül a profilba. A színszűrés a vörös Hue-átfordulást is kezeli.
 6. Indíts ellenőrzést és próbálj ki jó, hiányos, rossz színű, elfordított és elcsúszott mintákat.
 
+### Ha csak 5/7 vagy 6/7 elem látszik a kalibrációban
+
+A színmaszk vékony alapvonalainak szakadása miatt két belső terület összeolvadhat,
+vagy egy elem belseje összenyílhat a háttérrel. Ez nem feltétlenül kamera-felbontási
+probléma. Az elvárt darabszám marad hét.
+
+- Először a `Gap closing` csúszkát emeld fokozatosan: 1-es állás = 3×3,
+  2-es = 5×5, 3-as = 7×7 képpontos réslezárás, legfeljebb 15×15.
+  A legkisebb megfelelő értéket válaszd, mert túl nagy érték eltorzíthatja a kontúrokat.
+- Ha marad szakadás, a színes `Calibration` ablakban kattints a meglévő rózsaszín
+  vonal két végére. Legfeljebb 40 képpontos szakasz köthető össze, legfeljebb 20 helyen.
+  Csak tényleges alapvonal rövid hiányát javítsd; ne rajzolj új alkatrészt vagy teljes élt.
+- `U`: utolsó pont/összekötés visszavonása; `R`: összes kézi összekötés törlése.
+  A cián vonal a beállított összekötés, a fekete-fehér maszk mutatja, hogy éppen aktív-e.
+- `S` csak a hét külön kontúr megtalálása után ment. A javítási beállítások a profilba
+  kerülnek, és ellenőrzéskor is érvényesülnek. Régi profilok továbbra is használhatók.
+
+A kézi összekötés csak akkor aktív, ha a nyers színmaszkban mindkét végén, két pixel
+környezeten belül látszik az alap. Ez nem állítja vissza a kitakart információt:
+segített szegmentáció, amelyet hibás termékekkel is ellenőrizni kell.
+**A kézi összekötések rögzített képpozíciókhoz kötöttek: csak rögzített kamera és
+ugyanoda illesztett termék mellett használd őket.** Eltérő felbontásnál a program hibával
+megáll; helyzetváltozásnál újrakalibrálás szükséges. A csak automatikus réslezárásnak
+nincs ilyen képpozícióhoz kötése.
+
+Az XDG/Wayland Qt-figyelmeztetés önmagában nem magyarázza a darabszámot, ha az ablakok
+és a kijelölés működnek; az elemszámot a képfeldolgozás maszkja határozza meg.
+
 Mentett fotó is használható: `python -m qc_station calibrate --image jo_termek.png`.
 Másik összeállításhoz ments külön profilt. Az elemek neve és a toleranciák a profil
 JSON-jában szerkeszthetők. A mentés felülírja az azonos nevű profilt; az eredmények

@@ -2,6 +2,7 @@
 import json
 from pathlib import Path
 import cv2
+import numpy as np
 
 from .vision import create_profile, extract, learn_color, validate_profile
 
@@ -37,11 +38,33 @@ def calibrate(source, output, image=None):
         names = ["H low", "S low", "V low", "H high", "S high", "V high"]
         for i, name in enumerate(names):
             cv2.createTrackbar(name, "HSV", bounds[i // 3][i % 3], 179 if i % 3 == 0 else 255, lambda _: None)
-        print("Tune HSV until all 7 parts have separate green contours. S: save; Q: cancel.")
+        cv2.createTrackbar("Gap closing", "HSV", 1, 7, lambda _: None)
+        segmentation = {"close_kernel": 3, "frame_size": [frame.shape[1], frame.shape[0]], "bridges": []}
+        pending = []
+
+        def click(event, x, y, flags, param):
+            if event != cv2.EVENT_LBUTTONDOWN:
+                return
+            if not (0 <= x < frame.shape[1] and 0 <= y < frame.shape[0]):
+                return
+            pending.append([x, y])
+            if len(pending) == 2:
+                distance = np.linalg.norm(np.asarray(pending[0]) - pending[1])
+                if 0 < distance <= 40 and len(segmentation["bridges"]) < 20:
+                    segmentation["bridges"].append(pending.copy())
+                else:
+                    print("Bridge rejected: select gap endpoints <=40 pixels apart (max 20 bridges).")
+                pending.clear()
+
+        cv2.setMouseCallback("Calibration", click)
+        print("Tune HSV and Gap closing (smallest value giving 7 separate parts).")
+        print("For a broken pink boundary: click its two ends in Calibration (max 40px).")
+        print("U: undo bridge; R: clear bridges; S: save; Q: cancel. Do not draw new part edges.")
         while True:
             values = [cv2.getTrackbarPos(name, "HSV") for name in names]
             bounds = [values[:3], values[3:]]
-            base, parts, mask = extract(frame, bounds)
+            segmentation["close_kernel"] = 2 * cv2.getTrackbarPos("Gap closing", "HSV") + 1
+            base, parts, mask = extract(frame, bounds, segmentation=segmentation)
             preview = frame.copy()
             if base is not None:
                 cv2.drawContours(preview, [base], -1, (255, 0, 0), 2)
@@ -50,15 +73,32 @@ def calibrate(source, output, image=None):
                 cv2.drawContours(preview, [contour], -1, (0, 255, 0), 2)
                 px, py, _, _ = cv2.boundingRect(contour)
                 cv2.putText(preview, f"{i+1}", (px, py), 0, 0.6, (0, 255, 0), 2)
+            for a, b in segmentation["bridges"]:
+                cv2.line(preview, tuple(a), tuple(b), (255, 255, 0), 1)
+            for point in pending:
+                cv2.circle(preview, tuple(point), 4, (255, 255, 0), -1)
+            cv2.putText(preview, f"Close: {segmentation['close_kernel']}px | bridges: {len(segmentation['bridges'])} | U: undo R: clear",
+                        (10, frame.shape[0] - 12), 0, 0.5, (255, 255, 255), 1)
             cv2.putText(preview, f"Parts: {len(parts)}/7 | S: save | Q: cancel", (10, 25), 0, 0.6, (255, 255, 255), 2)
             cv2.imshow("Calibration", preview)
             cv2.imshow("HSV", mask)
             key = cv2.waitKey(30) & 255
             if key == ord("q"):
                 return
+            if key == ord("u"):
+                if pending:
+                    pending.clear()
+                elif segmentation["bridges"]:
+                    segmentation["bridges"].pop()
+            if key == ord("r"):
+                segmentation["bridges"].clear()
+                pending.clear()
             if key == ord("s"):
+                if pending:
+                    print("Finish the bridge with a second click, or U to cancel it.")
+                    continue
                 try:
-                    profile = create_profile(frame, bounds, Path(output).stem)
+                    profile = create_profile(frame, bounds, Path(output).stem, segmentation=segmentation)
                     validate_profile(profile)
                 except ValueError as error:
                     print(error)
