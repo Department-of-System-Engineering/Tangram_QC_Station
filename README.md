@@ -94,6 +94,36 @@ Az új LED után újrakalibrálás szükséges. A v1 profil nem alakítható aut
 v2-vé, mert nincsenek benne szemantikusan megnevezett elemek és közös színosztályok.
 Részletes pontozás és korlátok: [docs/variants.md](docs/variants.md).
 
+### Halvány piros elemek és hasonló színű háttér
+
+Az újonnan készített v2 profil már Lab színtérben tanul kis színpalettát a kijelölt
+elemek belsejéből **és a munkaterület háttérpixeleiből**. Nem követel meg rózsaszín
+alapot, és nem használja annak geometriáját; a háttérszínek kizáró mintaként segítenek
+elkerülni, hogy a halvány piros és a rózsaszín egy kontúrrá olvadjon. Az azonosan
+valószínű színosztályba kerülő pixel ismeretlen marad. Régebbi v2 profilok továbbra is
+HSV-t használnak, tehát a javításhoz újrakalibrálás kell.
+
+A zöld poligonok a saját sarokkijelöléseid, nem a mért kontúrok. Sikertelen `S` mentés
+után külön ablakban jelenik meg az automatikus maszk és a tényleges detektálás.
+A program a profil mellett, egy egyedi `calibration_diagnostics/.../` könyvtárba menti:
+
+- `frame.png`: eredeti, feliratok és kijelölések nélküli kamerakép;
+- `selection.json`: a sarokkijelölések, munkaterület és variáns;
+- `detected.png`, `mask.png`: a tényleges automatikus detektálás;
+- `report.json`: mért hibák és az elutasított profil adatai (nem futtatható profil).
+
+A terminál kiírja a pontos könyvtárat. Hibaelemzéshez ezt a teljes könyvtárat érdemes
+megőrizni/átadni, nem képernyőképet használni bemenetként. Nem kell újrakattintani:
+
+```bash
+python -m qc_station calibrate --resume profiles/calibration_diagnostics/ID/selection.json --output profiles/cica-v2.json
+```
+
+A `--resume` a mentett nyers képet használja, nem élő kamerát; `U`-val javíthatók a
+kijelölések, `S` újra ellenőriz és csak siker esetén ment aktív profilt. A háttér vagy
+világítás jelentős változásakor új kameraképből taníts; a Lab-paletta sem tud optikailag
+megkülönböztethetetlen felületeket biztonságosan szétválasztani.
+
 ### Régi alapmaszkos kalibráció (csak `--legacy-base` módban)
 
 Az alábbi korábbi módszer v1 profilt készít, nincs A–D variánsfelismerése.

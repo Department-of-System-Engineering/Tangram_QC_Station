@@ -4,7 +4,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from .variants import PART_NAMES, VARIANTS, create_variant_profile
+from .variants import PART_NAMES, VARIANTS, create_variant_profile, ReferenceValidationError
+from .calibration_diagnostics import save_diagnostics, load_selection
 
 
 LABELS = ("LEFT ear (in upright diagram)", "RIGHT ear (in upright diagram)",
@@ -13,10 +14,16 @@ LABELS = ("LEFT ear (in upright diagram)", "RIGHT ear (in upright diagram)",
 VERTICES = (3, 3, 4, 4, 3, 3, 3)
 
 
-def calibrate_variants(source, output, variant, image=None):
+def calibrate_variants(source, output, variant, image=None, resume=None):
     cap = None
     try:
-        if image:
+        restored = None
+        if resume:
+            frame, restored, captured_variant, roi = load_selection(resume)
+            if variant is not None and variant != captured_variant:
+                raise ValueError("Requested variant conflicts with saved selection")
+            variant = captured_variant
+        elif image:
             frame = cv2.imread(image)
             if frame is None:
                 raise ValueError(f"Cannot read image: {image}")
@@ -39,25 +46,28 @@ def calibrate_variants(source, output, variant, image=None):
                     return
                 if key == 32:
                     break
-        if image:
+        if image and not resume:
             scale = min(1, 640/frame.shape[1], 480/frame.shape[0])
             if scale < 1:
                 frame = cv2.resize(frame, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
-        print("Select work area enclosing ALL pieces with background margin. ENTER confirms.")
-        roi = list(map(int, cv2.selectROI("Variant calibration", frame, False)))
+        if not resume:
+            print("Select work area enclosing ALL pieces with background margin. ENTER confirms.")
+            roi = list(map(int, cv2.selectROI("Variant calibration", frame, False)))
         x, y, w, h = roi
         if not w or not h:
             return
-        points, polygons = [], []
+        points, polygons = [], restored or []
 
         def click(event, px, py, flags, param):
             if event == cv2.EVENT_LBUTTONDOWN and len(polygons) < 7 and x < px < x+w-1 and y < py < y+h-1:
                 if len(points) < VERTICES[len(polygons)]:
                     points.append([px, py])
 
+        cv2.namedWindow("Variant calibration")
         cv2.setMouseCallback("Variant calibration", click)
         print("Click each piece's corners in perimeter order, then ENTER. U: undo; Q: cancel.")
         print("Use actual colored piece corners, not the base border. Left/right refer to the upright drawing.")
+        print("Green polygons are your selections, not the automatically detected contours.")
         print("After seven pieces: S saves only if automatic detection passes; U redoes the last piece.")
         previous = -1
         error_message = ""
@@ -112,7 +122,19 @@ def calibrate_variants(source, output, variant, image=None):
                 except ValueError as error:
                     error_message = str(error)
                     print(error)
-                    print("Check corners/work area/variant. Touching same-color pieces must have a visible separating edge.")
+                    if isinstance(error, ReferenceValidationError):
+                        try:
+                            folder = save_diagnostics(output, frame, polygons, variant, roi, error)
+                            print(f"Raw frame, selections and actual detection saved: {folder}")
+                            print(f'Resume without clicking again: python -m qc_station calibrate --resume "{folder / "selection.json"}" --output "{output}"')
+                            cv2.imshow("Actual detection mask", error.mask)
+                            cv2.imshow("Actual detected contours", cv2.imread(str(folder / "detected.png")))
+                            for part in error.result["parts"]:
+                                if part["reasons"]:
+                                    print(f"  {part['name']}: {part.get('metrics', {})}")
+                        except OSError as diagnostic_error:
+                            print(f"Could not save diagnostics: {diagnostic_error}")
+                    print("Inspect the detected mask: color segmentation can merge background or split a piece. The profile was NOT accepted.")
                     continue
                 target = Path(output)
                 target.parent.mkdir(parents=True, exist_ok=True)

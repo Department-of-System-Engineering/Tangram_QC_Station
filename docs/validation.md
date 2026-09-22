@@ -3,7 +3,18 @@
 Dátum: 2026-09-22. Környezet: Windows x64, Python 3.14.3,
 OpenCV 4.14.0, NumPy 2.5.3; a projekt saját `.venv` környezete.
 
-`python -m unittest discover -s tests -v`: **34 teszt sikeres**.
+`python -m unittest discover -s tests -v`: **38 teszt sikeres**.
+
+A Lab-palettás javítás négy további tesztje: halvány piros darab és hasonló rózsaszín
+háttér elkülönítése (ugyanazon mintán a régi HSV elutasít); darab eltávolításának
+elutasítása; kétértelmű palettaegyezés kizárása; palettavalidáció; nyers kép és sarkok
+veszteségmentes diagnosztikai mentése/visszaolvasása, elutasított jelentés nem aktív profil.
+
+A felhasználó 2026-09-22-i képernyőképén közelítően újrakijelölt sarkokkal is történt
+diagnosztika: a Lab-modell után a fej és a középső háromszög elemenkénti hibái eltűntek.
+A teljes kép továbbra is elutasított (plusz kontúrok és élkapcsolatok); feliratokkal és
+zöld kijelöléssel szennyezett képernyőkép, ezért nem szolgál elfogadási bizonyítékként.
+A kép nem került a tesztkészletbe; a nyers kameraképes validáció továbbra is szükséges.
 
 - Referenciaminta elfogadása; eltolt/kicsinyített minta elfogadása.
 - Hiányzó és plusz elem, rossz szín, módosított alak/helyzet elutasítása.

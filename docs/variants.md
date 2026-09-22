@@ -1,14 +1,19 @@
 # Alkatrészalapú felismerés és pontozás (v2)
 
-Az alap színe és a régi kézi maszkhidak nem szerepelnek a v2 feldolgozásban.
-Egy jó minta hét, név szerint kijelölt poligonjából a rendszer geometriát és három
-HSV-színosztályt tanul. A recept az A–D ábra színelosztását követi, narancs helyett pirossal.
+Az alap előírt színe, geometriája és a régi kézi maszkhidak nem szerepelnek a v2 feldolgozásban.
+Egy jó minta hét, név szerint kijelölt poligonjából a rendszer geometriát és
+színosztályokat tanul. Az új profil Lab-palettát tartalmaz a három alkatrészszínhez
+és a háttérhez, régi v2 profiloknál továbbra is a HSV-tartományok működnek.
+A recept az A–D ábra színelosztását követi, narancs helyett pirossal.
 
 ## Feldolgozás
 
-1. A kijelölt munkaterületen külön piros, sárga és kék maszk készül. Átfedő
-   színosztályba eső pixel nem számít megbízható színbizonyítéknak. A 3×3 nyitás
-   kis zajokat távolít el. Nincs mesterséges alapvonal-kiegészítés.
+1. A kijelölt munkaterületen külön piros, sárga és kék maszk készül. Lab-palettánál
+   a háttér is versengő osztály: legközelebbi palettapont, kalibrált távolságlimit és
+   a két legközelebbi osztály közötti különbség dönt. Kétértelmű pixel nem megbízható
+   színbizonyíték. Új modellnél 3×3 zárás kezeli az apró kieséseket, majd 3×3 nyitás
+   távolít el zajt. Nincs feltétel nélküli konvexburok-kiegészítés, alakjavítás vagy
+   tűrésemelés a piros darabok kedvéért.
 2. Külön színkontúrokból alkatrészjelöltek készülnek. A munkaterület széléhez érő
    foltok háttérnek számítanak. Jelentős plusz kontúr is hibának számít.
 3. A geometriai illesztés színtől független, egyszer használatos párosítás:
@@ -79,3 +84,15 @@ order_id, product_instance_id és expected_variant mezőket. A fájl nem adatbá
 nincs automatikus frissítés, rendelési sor kiválasztás, jogosultság vagy lejáratellenőrzés.
 Később ezeket a digital_twin oldali szerződésben kell rögzíteni. A kameraállomásnak
 nem kell közvetlen SQL-hozzáférés; a backend adhat ellenőrzött termék/recept azonosítót.
+
+## Lab-paletta erőforrásigénye és reprodukálható hibák
+
+Osztályonként legfeljebb 4096 kalibráló pixel és nyolc k-means középpont szerepel.
+A k-means csak kalibrációkor fut. A kameraciklus palettapont-távolságokat számít a
+munkaterületen, néhány ROI méretű munkatömbbel. Ez többlet CPU-költség a HSV-hez
+képest; a cél-Pi-n a benchmarkot újra kell futtatni. Új csomag vagy neurális háló nem kell.
+
+Az elutasított referencia nyers képe, sarkai és jelentése menthető és `--resume`
+kapcsolóval újranyitható. A `report.json` szándékosan nem aktív profilséma;
+nem kerülhető meg vele a referenciaellenőrzés. A régi küszöbök és az összes geometriai
+feltétel megmaradt. A környezet változásával új háttérminták válhatnak szükségessé.

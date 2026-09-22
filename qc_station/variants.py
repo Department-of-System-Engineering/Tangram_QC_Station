@@ -4,6 +4,13 @@ import cv2
 import numpy as np
 
 from .vision import hsv_mask, interior_mask, learn_color
+from .color_model import learn_palette, palette_masks, validate_palette
+
+
+class ReferenceValidationError(ValueError):
+    def __init__(self, message, profile, result, mask):
+        super().__init__(message)
+        self.profile, self.result, self.mask = profile, result, mask
 
 
 PART_NAMES = ("left_ear", "right_ear", "head", "neck", "middle", "body", "foot")
@@ -85,13 +92,14 @@ def create_variant_profile(frame, polygons, variant, roi, name="tangram"):
          "thresholds": {"position": 0.06, "area_relative": 0.3, "shape": 0.2,
                         "angle_degrees": 10.0, "color_fraction": 0.65},
          "relations": make_relations(normalized)}
+    p["color_model"] = learn_palette(frame, polygons, VARIANTS[variant], roi)
     validate_variant_profile(p)
     # Refuse a saved recipe that cannot inspect its own reference with real segmentation.
-    result, _ = inspect_variants(frame, p, variant)
+    result, mask = inspect_variants(frame, p, variant)
     if not result["passed"]:
         failures = result["reasons"] + [f"{part['name']}: {','.join(part['reasons'])}"
                                         for part in result["parts"] if part["reasons"]]
-        raise ValueError("Reference does not pass automatic detection: " + "; ".join(failures))
+        raise ReferenceValidationError("Reference does not pass automatic detection: " + "; ".join(failures), p, result, mask)
     return p
 
 
@@ -117,6 +125,8 @@ def validate_variant_profile(p):
         a = np.asarray(p["colors"][color])
         if a.shape != (2, 3) or not np.isfinite(a).all() or (a != np.floor(a)).any() or (a < 0).any() or (a > [179, 255, 255]).any() or (a[0, 1:] > a[1, 1:]).any():
             raise ValueError("Invalid color calibration")
+    if "color_model" in p:
+        validate_palette(p["color_model"])
     if p.get("variants") != {k: dict(zip(PART_NAMES, v)) for k, v in VARIANTS.items()}:
         raise ValueError("Variant map must match the four agreed recipes")
     for key, maximum in (("position", 0.2), ("area_relative", 0.5), ("shape", 1),
@@ -133,8 +143,11 @@ def detect_parts(frame, profile):
     if [frame.shape[1], frame.shape[0]] != profile["frame_size"]:
         raise ValueError("Variant calibration requires the same processing resolution")
     x, y, w, h = profile["roi"]
-    hsv = cv2.cvtColor(frame[y:y+h, x:x+w], cv2.COLOR_BGR2HSV)
-    masks = {name: hsv_mask(hsv, bounds) for name, bounds in profile["colors"].items()}
+    if "color_model" in profile:
+        masks = palette_masks(frame[y:y+h, x:x+w], profile["color_model"])
+    else:
+        hsv = cv2.cvtColor(frame[y:y+h, x:x+w], cv2.COLOR_BGR2HSV)
+        masks = {name: hsv_mask(hsv, bounds) for name, bounds in profile["colors"].items()}
     # Separate colors, but never hallucinate boundaries between touching same-color parts.
     found = []
     debug = np.zeros((h, w), np.uint8)
@@ -146,6 +159,8 @@ def detect_parts(frame, profile):
             if other != color:
                 others = cv2.bitwise_or(others, other_mask)
         mask = cv2.bitwise_and(mask, cv2.bitwise_not(others))
+        if "color_model" in profile:
+            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
         debug = cv2.bitwise_or(debug, mask)
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)

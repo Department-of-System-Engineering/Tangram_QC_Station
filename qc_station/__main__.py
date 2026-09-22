@@ -158,6 +158,7 @@ def main():
     calibration = commands.add_parser("calibrate", help="Learn shapes/colors from a good product")
     calibration.add_argument("--camera", default="0")
     calibration.add_argument("--image")
+    calibration.add_argument("--resume", help="Resume a saved calibration selection.json with its raw frame")
     calibration.add_argument("--output", default="profiles/tangram.json")
     calibration.add_argument("--variant", choices=list("ABCD"), help="Known variant of the good calibration sample")
     calibration.add_argument("--legacy-base", action="store_true", help="Use old base-color calibration")
@@ -185,10 +186,12 @@ def main():
         if args.command == "calibrate":
             if args.legacy_base:
                 calibrate(camera_source(args.camera), args.output, args.image)
-            elif not args.variant:
+            elif not args.variant and not args.resume:
                 raise ValueError("Specify the good sample's variant: --variant A, B, C or D")
             else:
-                calibrate_variants(camera_source(args.camera), args.output, args.variant, args.image)
+                if args.resume and args.image:
+                    raise ValueError("Use either --resume or --image")
+                calibrate_variants(camera_source(args.camera), args.output, args.variant, args.image, args.resume)
         elif args.command == "run":
             if args.max_videos < 1 or (args.product_instance_id is not None and args.product_instance_id < 1):
                 raise ValueError("Video limit and product ID must be positive")
