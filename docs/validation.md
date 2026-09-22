@@ -3,7 +3,15 @@
 Dátum: 2026-09-22. Környezet: Windows x64, Python 3.14.3,
 OpenCV 4.14.0, NumPy 2.5.3; a projekt saját `.venv` környezete.
 
-`python -m unittest discover -s tests -v`: **38 teszt sikeres**.
+`python -m unittest discover -s tests -v`: **42 teszt sikeres**.
+
+A kontúrjavítás négy regressziós tesztje: kis háttérfoltok kizárása valódi plusz elem
+elutasításával együtt; kis saroklevágású háromszög élillesztése; mély bemetszés és
+téves csúcsszám elutasítása; nem mérhető szög null értéke és `edge_geometry` hibája.
+A felhasználó második maszk-képernyőképén a kis fül kontúrja 1044 pixel területű,
+az egyszerű közelítés négyszögnek veszi. A hosszú élekből illesztett háromszög területe
+ehhez képest +2,18%; a nyers kontúr alak/terület adatai nem változnak. A teljes eredeti
+kalibráció nem reprodukálható a nyers frame.png és selection.json nélkül.
 
 A Lab-palettás javítás négy további tesztje: halvány piros darab és hasonló rózsaszín
 háttér elkülönítése (ugyanazon mintán a régi HSV elutasít); darab eltávolításának

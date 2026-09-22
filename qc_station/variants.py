@@ -48,8 +48,71 @@ def angle_difference(a, b):
     return abs((a - b + 90) % 180 - 90)
 
 
+def fit_edge_polygon(contour, vertices):
+    """Fit measured straight sides across tiny bevels; never change raw area/shape."""
+    c = np.asarray(contour, np.float32)
+    perimeter = cv2.arcLength(c, True)
+    area = cv2.contourArea(c)
+    if area <= 0 or vertices not in (3, 4):
+        return None
+    diagonal = float(np.linalg.norm(np.ptp(c.reshape(-1, 2), axis=0)))
+
+    def valid(polygon):
+        if polygon is None or not np.isfinite(polygon).all() or not cv2.isContourConvex(polygon):
+            return False
+        if abs(cv2.contourArea(polygon)/area-1) > 0.12:
+            return False
+        # Both directions: do not bridge a deep notch or invent a long missing tip.
+        return (all(abs(cv2.pointPolygonTest(polygon, tuple(map(float, p)), True)) <= .03*diagonal
+                    for p in c.reshape(-1, 2)) and
+                all(abs(cv2.pointPolygonTest(c, tuple(map(float, p)), True)) <= .08*diagonal
+                    for p in polygon.reshape(-1, 2)))
+
+    for epsilon in (.015, .02, .025, .03, .035, .04):
+        polygon = cv2.approxPolyDP(c, epsilon*perimeter, True)
+        if len(polygon) == vertices and valid(polygon):
+            return polygon
+    # A short clipped corner adds an extra side. Fit only the long observed sides.
+    outline = cv2.approxPolyDP(c, .012*perimeter, True).reshape(-1, 2)
+    if not vertices <= len(outline) <= 12:
+        return None
+    delta = np.roll(outline, -1, axis=0) - outline
+    lengths = np.linalg.norm(delta, axis=1)
+    indices = sorted(np.argsort(lengths)[-vertices:])
+    lines = []
+    points = c.reshape(-1, 2)
+    for i in indices:
+        if lengths[i] < .08*perimeter:
+            return None
+        direction = delta[i] / lengths[i]
+        offset = points - outline[i]
+        along = offset @ direction
+        distance = np.abs(offset[:, 0]*direction[1] - offset[:, 1]*direction[0])
+        support = points[(distance <= .015*diagonal) & (along >= -.02*diagonal) &
+                         (along <= lengths[i]+.02*diagonal)]
+        if len(support) < 2:
+            return None
+        vx, vy, x, y = cv2.fitLine(support, cv2.DIST_HUBER, 0, .001, .001).ravel()
+        lines.append((np.array([x, y]), np.array([vx, vy])))
+    corners = []
+    for i in range(vertices):
+        point, direction = lines[i]
+        other, second = lines[(i+1) % vertices]
+        matrix = np.column_stack((direction, -second))
+        if abs(np.linalg.det(matrix)) < .05:
+            return None
+        t = np.linalg.solve(matrix, other-point)[0]
+        corners.append(point+t*direction)
+    polygon = np.asarray(corners, np.float32).reshape(-1, 1, 2)
+    return polygon if valid(polygon) else None
+
+
 def edge_correspondence(reference, observed):
-    a, b = edges(reference), edges(observed)
+    a = edges(reference)
+    polygon = fit_edge_polygon(observed, len(a))
+    if polygon is None:
+        return None
+    b = edges(polygon)
     if len(a) != len(b) or len(a) not in (3, 4):
         return None
     # Convex polygon edges stay cyclic; cyclic offset also handles contour start changes.
@@ -93,6 +156,7 @@ def create_variant_profile(frame, polygons, variant, roi, name="tangram"):
                         "angle_degrees": 10.0, "color_fraction": 0.65},
          "relations": make_relations(normalized)}
     p["color_model"] = learn_palette(frame, polygons, VARIANTS[variant], roi)
+    p["min_candidate_area_pixels"] = max(30.0, .25*min(cv2.contourArea(c) for c in polygons))
     validate_variant_profile(p)
     # Refuse a saved recipe that cannot inspect its own reference with real segmentation.
     result, mask = inspect_variants(frame, p, variant)
@@ -127,6 +191,10 @@ def validate_variant_profile(p):
             raise ValueError("Invalid color calibration")
     if "color_model" in p:
         validate_palette(p["color_model"])
+    if "min_candidate_area_pixels" in p:
+        minimum = p["min_candidate_area_pixels"]
+        if not np.isfinite(minimum) or not 0 < minimum < w*h:
+            raise ValueError("Invalid minimum candidate area")
     if p.get("variants") != {k: dict(zip(PART_NAMES, v)) for k, v in VARIANTS.items()}:
         raise ValueError("Variant map must match the four agreed recipes")
     for key, maximum in (("position", 0.2), ("area_relative", 0.5), ("shape", 1),
@@ -162,11 +230,10 @@ def detect_parts(frame, profile):
         if "color_model" in profile:
             mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
-        debug = cv2.bitwise_or(debug, mask)
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         for c in contours:
             area = cv2.contourArea(c)
-            if area < max(30, w*h*0.001):
+            if area < profile.get("min_candidate_area_pixels", max(30, w*h*0.001)):
                 continue
             cx, cy, cw, ch = cv2.boundingRect(c)
             if cx == 0 or cy == 0 or cx+cw >= w or cy+ch >= h:
@@ -177,6 +244,9 @@ def detect_parts(frame, profile):
             if np.any(occupied[inside]):
                 continue
             occupied[inside] = 255
+            component = np.zeros_like(mask)
+            cv2.drawContours(component, [c], -1, 255, -1)
+            debug |= cv2.bitwise_and(mask, component)
             found.append({"contour": c.astype(np.float32), "color": color, "fractions": fractions})
     return found, debug
 
@@ -246,16 +316,16 @@ def inspect_variants(frame, profile, expected_variant=None):
         j = mapping[i]
         a, b = reference[i], observed[j]
         mapped_edges = edge_correspondence(a, b)
-        angle_error = max((angle_difference(x[0], y[0]) for x, y in zip(edges(a), mapped_edges)), default=90) if mapped_edges else 90
+        angle_error = max(angle_difference(x[0], y[0]) for x, y in zip(edges(a), mapped_edges)) if mapped_edges else None
         metrics = {"position": float(np.linalg.norm(center(a)-center(b))),
                    "area_relative": abs(cv2.contourArea(b)/cv2.contourArea(a)-1),
                    "shape": float(cv2.matchShapes(a, b, cv2.CONTOURS_MATCH_I1, 0)),
                    "angle_degrees": angle_error}
         part["metrics"] = metrics
-        part["reasons"] = [k for k, v in metrics.items() if v > limits[k]]
+        part["reasons"] = [("edge_geometry" if v is None else k) for k, v in metrics.items() if v is None or v > limits[k]]
         if not cv2.isContourConvex(cv2.approxPolyDP(b, 0.025*cv2.arcLength(b, True), True)):
             part["reasons"].append("nonconvex")
-        geometry_scores.append(float(np.mean([max(0, 1-v/(2*limits[k])) for k, v in metrics.items()])))
+        geometry_scores.append(float(np.mean([0 if v is None else max(0, 1-v/(2*limits[k])) for k, v in metrics.items()])))
         if mapped_edges:
             edge_maps[i] = mapped_edges
         colors[name] = detected[j]["color"]
@@ -280,12 +350,12 @@ def inspect_variants(frame, profile, expected_variant=None):
     relation_scores = []
     for relation in profile["relations"]:
         i, j = relation["a"], relation["b"]
-        error = 90.0
+        error = None
         if i in edge_maps and j in edge_maps:
             difference = angle_difference(edge_maps[i][relation["edge_a"]][0], edge_maps[j][relation["edge_b"]][0])
             error = abs(difference - (0 if relation["kind"] == "parallel" else 90))
-        result["relations"].append({**relation, "error_degrees": error, "passed": error <= limits["angle_degrees"]})
-        relation_scores.append(max(0, 1-error/(2*limits["angle_degrees"])))
+        result["relations"].append({**relation, "error_degrees": error, "passed": error is not None and error <= limits["angle_degrees"]})
+        relation_scores.append(0 if error is None else max(0, 1-error/(2*limits["angle_degrees"])))
     if any(not r["passed"] for r in result["relations"]):
         result["reasons"].append("edge_relations")
     # Pairwise displacement checks cannot be hidden by a high average score.

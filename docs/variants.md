@@ -15,7 +15,11 @@ A recept az A–D ábra színelosztását követi, narancs helyett pirossal.
    távolít el zajt. Nincs feltétel nélküli konvexburok-kiegészítés, alakjavítás vagy
    tűrésemelés a piros darabok kedvéért.
 2. Külön színkontúrokból alkatrészjelöltek készülnek. A munkaterület széléhez érő
-   foltok háttérnek számítanak. Jelentős plusz kontúr is hibának számít.
+   foltok háttérnek számítanak. Új kalibrációnál a legkisebb kiválasztott darab
+   pixelterületének 25%-a (legalább 30 pixel) a `min_candidate_area_pixels` küszöb.
+   Régebbi profilok ezt nem tartalmazzák, azoknál a régi ROI-arányos küszöb marad.
+   Jelentős plusz kontúr is hibának számít; a küszöb alatti szennyeződés ellenőrzése
+   nem része a darabszámellenőrzésnek. Nagy méretváltozáskor újrakalibrálás szükséges.
 3. A geometriai illesztés színtől független, egyszer használatos párosítás:
    a név szerinti hét helyre legfeljebb egy-egy kontúr rendelhető. A kezdeti
    pozíció/terület alapú párosítás közeli kameraállást feltételez.
@@ -39,9 +43,20 @@ referenciakapcsolatok készülnek. A jó mintán legfeljebb 6°-ra párhuzamosna
 illetve 6°-ra merőlegesnek látszó élpárok bekerülnek a profilba. A megfigyelt
 kontúrok élei ciklikus megfeleltetéssel kapcsolódnak a referenciaélekhez.
 
+A kontúr egyszerűsítése több pontossági szinten próbálja meg a szükséges három vagy
+négy oldalt kinyerni. Rövid saroklevágásnál a hosszú kontúrszakaszokra robusztus
+egyenesillesztés is megengedett. Az illesztett poligon területe legfeljebb 12%-kal
+térhet el a nyers kontúrétól; a nyers pontok legfeljebb a kontúr befoglaló átlójának
+3%-ára lehetnek a poligonhatártól, az illesztett sarkok pedig legfeljebb 8%-ára a nyers
+határtól. Így korlátozott csúcsbecslés történik, nem feltétel nélküli konvexburok-képzés.
+A terület- és alakmetrikák továbbra is a nyers kontúron számítódnak. A határokat
+valós jó és sérült darabokon is validálni kell.
+
 Az iránykülönbség modulo 180°, **nem modulo 90°**: párhuzamosnál 0°, merőlegesnél 90°
 az ideális érték. Alapértelmezett tűrés 10°. Hiányzó vagy hibás élmegfeleltetés
-nem kap automatikusan jó pontot. Az egyedi elem iránya és az elemek egymáshoz
+nem kap automatikusan jó pontot: `angle_degrees`/`error_degrees` értéke ilyenkor null,
+a hibakód `edge_geometry`, a kapcsolati vizsgálat eredménye hamis. A régi 90°
+helyettesítő érték félrevezető volt. Az egyedi elem iránya és az elemek egymáshoz
 viszonyított élei külön is ellenőrzöttek.
 
 ## Pontszám és döntés

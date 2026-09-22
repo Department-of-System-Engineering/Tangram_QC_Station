@@ -118,3 +118,7 @@ A pontszám nem valószínűség. Ismert, de a rendeléstől eltérő variáns e
 felismert variáns megmarad az eredményben, a minősítés FAIL. Keveredő variánsokat
 adó időablak INCONCLUSIVE lehet. Ezek a mezők a javasolt QC-fogadó szerződéséhez
 tartoznak; a régi termékesemény-végpont nem használható helyettük.
+
+Nem illeszthető élgeometriánál az elemi `metrics.angle_degrees`, illetve a kapcsolati
+`error_degrees` null értékű, nem 90 fok. A `edge_geometry` hibakódot és a `passed: false`
+mezőt is kezelni kell; a hiányzó szöget nem szabad nulla hibaként aggregálni.

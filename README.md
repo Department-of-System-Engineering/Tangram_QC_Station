@@ -124,6 +124,21 @@ kijelölések, `S` újra ellenőriz és csak siker esetén ment aktív profilt. 
 világítás jelentős változásakor új kameraképből taníts; a Lab-paletta sem tud optikailag
 megkülönböztethetetlen felületeket biztonságosan szétválasztani.
 
+### Apró háttérfoltok és a fül plusz kontúrcsúcsa
+
+Az új kalibráció a legkisebb kijelölt darab területének 25%-át menti jelöltméret-küszöbként
+(legalább 30 pixel). Ennél kisebb foltok nem számítanak teljes alkatrésznek. Ez nem a
+hét legnagyobb kontúr vak kiválasztása: nagyobb plusz elemek továbbra is hibát okoznak.
+Kis szennyeződések külön vizsgálatára ez a darabszámellenőrzés nem alkalmas.
+A megjelenített detektálási maszk már csak a méret- és szélvizsgálaton átment jelölteket mutatja.
+
+A lekerekített/levágott kis sarok miatt létrejövő plusz kontúrcsúcsot a hosszabb mért
+élszakaszokra illesztett egyenesek kezelik. A nyers kontúr területét és alakját továbbra
+is ellenőrzi a rendszer. Ha az élek nem párosíthatók, `edge_geometry` hiba és
+`angle_degrees: null` szerepel; ez nem egy mért 90 fokos elfordulás.
+Korábban készült profilnál a jelöltméret-küszöb még a régi érték: a mentett kijelölés
+`--resume` betöltésével és `S` mentéssel újratanítható, újrakattintás nélkül.
+
 ### Régi alapmaszkos kalibráció (csak `--legacy-base` módban)
 
 Az alábbi korábbi módszer v1 profilt készít, nincs A–D variánsfelismerése.
