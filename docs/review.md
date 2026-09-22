@@ -1,5 +1,9 @@
 # Az eredeti QC megoldás áttekintése
 
+Ez a dokumentum az eredeti program és az első, alapmaszkos változat értékelése.
+A 2026-09-22-én bevezetett, alap színétől független v2 megoldás és annak korlátai
+a [variants.md](variants.md) dokumentumban szerepelnek.
+
 Forrás: [Hullo0215/QC_Station_Tangram](https://github.com/Hullo0215/QC_Station_Tangram),
 helyi forrásverzió: `cdd6a16a95c614b4d47b499be5b49c26c0285896`.
 Az öt Python-fájl végigolvasva; az új projekt eredetileg üres Git-munkakönyvtár volt,

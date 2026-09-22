@@ -15,10 +15,13 @@ class InspectionWindow:
         self.failures = Counter()
         self.previous_sample = None
         self.sampling_gap = False
+        self.variant_votes = Counter()
+        self.quality_sum = 0.0
 
     def update(self, result, now):
+        present = result.get("object_present", result["base_present"])
         if self.finished:
-            if result["base_present"]:
+            if present:
                 self.absent_since = None
             elif self.absent_since is None:
                 self.absent_since = now
@@ -30,9 +33,11 @@ class InspectionWindow:
                 self.absent_since = None
                 self.previous_sample = None
                 self.sampling_gap = False
+                self.variant_votes.clear()
+                self.quality_sum = 0.0
             return None
         if self.started is None:
-            if not result["base_present"]:
+            if not present:
                 return None
             self.started = now
         if self.previous_sample is not None and now - self.previous_sample > 1.0:
@@ -40,6 +45,9 @@ class InspectionWindow:
         self.previous_sample = now
         self.samples += 1
         self.good += bool(result["passed"])
+        if result.get("detected_variant"):
+            self.variant_votes[result["detected_variant"]] += 1
+        self.quality_sum += result.get("quality_score", 0.0)
         for reason in result["reasons"]:
             self.failures[reason] += 1
         for part in result["parts"]:
@@ -50,9 +58,26 @@ class InspectionWindow:
         self.finished = True
         enough = self.samples >= self.min_samples and not self.sampling_gap
         passed = enough and self.good / self.samples >= self.pass_fraction and result["passed"]
-        return {"status": "PASS" if passed else "FAIL" if enough else "INCONCLUSIVE",
+        consistent = True
+        winner = None
+        if "detected_variant" in result:
+            if self.variant_votes:
+                candidate, votes = self.variant_votes.most_common(1)[0]
+                consistent = votes / self.samples >= self.pass_fraction and result["detected_variant"] == candidate
+                if consistent:
+                    winner = candidate
+            else:
+                consistent = False
+            passed = passed and consistent
+        mixed = len(self.variant_votes) > 1 and not consistent
+        final = {"status": "PASS" if passed else "FAIL" if enough and not mixed else "INCONCLUSIVE",
                 "samples": self.samples, "passing_samples": self.good,
                 "pass_fraction": self.good / self.samples,
                 "duration_seconds": now - self.started,
                 "sampling_gap": self.sampling_gap,
                 "failure_counts": dict(self.failures), "last_frame": result}
+        if "detected_variant" in result:
+            final.update(detected_variant=winner, expected_variant=result.get("expected_variant"),
+                         variant_votes=dict(self.variant_votes),
+                         mean_quality_score=round(self.quality_sum / self.samples, 2))
+        return final

@@ -111,6 +111,9 @@ def create_profile(frame, bounds, name="tangram", expected_count=7, segmentation
 
 
 def validate_profile(p):
+    if p.get("schema_version") == 2:
+        from .variants import validate_variant_profile
+        return validate_variant_profile(p)
     if p.get("schema_version") != 1 or not p.get("name") or len(p.get("parts", [])) != 7:
         raise ValueError("Expected a version 1 profile with seven parts")
 
@@ -162,7 +165,12 @@ def profile_id(profile):
     return hashlib.sha256(json.dumps(profile, sort_keys=True).encode()).hexdigest()[:16]
 
 
-def inspect(frame, profile):
+def inspect(frame, profile, expected_variant=None):
+    if profile.get("schema_version") == 2:
+        from .variants import inspect_variants
+        return inspect_variants(frame, profile, expected_variant)
+    if expected_variant is not None:
+        raise ValueError("Variant recognition requires a new version 2 calibration")
     base, candidates, mask = extract(frame, profile["base_hsv"], segmentation=profile.get("segmentation"))
     result = {"base_present": base is not None, "passed": False,
               "found_count": len(candidates), "parts": [], "reasons": []}

@@ -6,7 +6,10 @@ az új belépési pont: `python -m qc_station`.
 
 ## Mit tud az új változat?
 
-- Jó mintadarabból tanulható alap-szín, elemenkénti szín, kontúr és helyzet.
+- Az új (v2) kalibráció az alkatrészek színét, kontúrját és egymáshoz viszonyított
+  helyzetét tanulja; az alap színét nem használja.
+- A–D variáns felismerése, rendelés szerinti elvárt variáns ellenőrzése,
+  külön geometriai, relatív helyzeti, párhuzamossági/merőlegességi és színpontszám.
 - Alapértelmezésben **3 másodperces vizsgálat**, legfeljebb 10 elemzett kép/s.
 - Legalább 15 minta, legalább 80% teljesen jó képkocka és jó zárókép kell a PASS-hoz.
   Egy teljesen jó képen mind a hét elemnek meg kell felelnie. Az üres képek is
@@ -16,16 +19,20 @@ az új belépési pont: `python -m qc_station`.
   A videó az elemzett képeket tartalmazza; névleges lejátszási sebessége a `--fps`.
   Terhelés miatti képkieséskor a videó időtartama rövidebb lehet a valós vizsgálatnál;
   a tényleges időt a JSON `duration_seconds` mezője adja meg.
-- Egy eredmény termékbehelyezésenként; új ciklushoz legalább 0,7 s alap nélküli idő kell.
+- Egy eredmény termékbehelyezésenként; új ciklushoz legalább 0,7 s detektált elem
+  nélküli idő kell. A v2 ciklus az első színes alkatrészjelölt felismerésekor indul,
+  nem vár szereléskész jelre vagy mind a hét elem jelenlétére.
 - Külön, képfeldolgozást nem blokkoló parancs a mentett eredmények HTTP-küldéséhez.
 
-Ez az első megvalósítás **rögzített kamerát és közel azonos termékirányt** feltételez.
-Eltolást és közel egyenletes méretváltozást normalizál; tetszőleges forgatást vagy
-perspektívaváltozást nem korrigál. Az elemeket a rózsaszín alap maszkjának különálló
-belső kontúrjaiból keresi, ahogy az eredeti program: az alapnak el kell választania
-az elemeket, és a színük nem olvadhat bele az alap szűrésébe. Eltérő szerelési
-kialakításnál más szegmentáció szükséges. Az elfogadási küszöbök induló értékek,
-valós jó/hibás mintákkal beállítandók; egyetlen jó kép nem bizonyítja a pontosságot.
+**Rögzített kamera és közel azonos termékirány** szükséges. A v2 kis elfordulást,
+eltolást és egyenletes skálaváltozást közösen illeszt a hét elem alapján.
+Tetszőleges forgatást, tükrözést és perspektívaváltozást nem kezel. A kalibrált
+munkaterület és feldolgozási felbontás maradjon ugyanaz. A kalibrált piros/sárga/kék
+elemeknek optikailag elkülöníthetőknek kell lenniük: egymáshoz érő azonos színű
+elemeket, illetve a háttérrel teljesen összeolvadó darabot nem lehet megbízhatóan
+külön kontúrként kinyerni. A munkaterület széléhez érő színfoltokat háttérnek tekinti.
+A régi, alapmaszkos profilok kompatibilitási módban tovább futnak, variánsfelismerés nélkül.
+Az elfogadási küszöbök induló értékek, valós jó/hibás mintákkal validálandók.
 
 ## Telepítés
 
@@ -49,8 +56,50 @@ megadva, ezért a kompatibilitás és a sebesség helyszíni ellenőrzést igén
 
 ## Kalibráció – kódmódosítás nélkül
 
+Az új alapértelmezett módban ismert, jó A/B/C/D termék kell. A képen lévő
+narancssárgát pirosnak vesszük; a kép alatti prezentációs feliratok nem részei a receptnek.
+A bal/jobb fül az álló referenciarajz szerinti bal/jobb, akkor is, ha a kamera más
+szögből látja a terméket.
+
+| Elem | A | B | C | D |
+|---|---|---|---|---|
+| Bal fül | kék | sárga | kék | sárga |
+| Jobb fül | sárga | kék | kék | sárga |
+| Fej (négyzet) | piros | piros | piros | piros |
+| Nyak (paralelogramma) | sárga | kék | sárga | sárga |
+| Középső háromszög | piros | piros | piros | piros |
+| Nagy testháromszög | kék | kék | kék | sárga |
+| Talp | kék | kék | kék | kék |
+
+```bash
+# A --variant a kalibráló mintadarab TÉNYLEGES variánsa legyen!
+python -m qc_station calibrate --camera 0 --variant A --output profiles/cica-v2.json
+# Nyers kamerafotóval:
+python -m qc_station calibrate --image jo_termek.png --variant A --output profiles/cica-v2.json
+```
+
+1. SPACE: képfagyasztás. Jelöld ki a teljes terméket körülvevő munkaterületet,
+   a szélén háttérráhagyással; ENTER.
+2. A program sorban kéri a bal fület, jobb fület, fejet, nyakat, középső háromszöget,
+   nagy testháromszöget és talpat. Mindig a színes elem sarkaira kattints körbejárási
+   sorrendben, ne az alapra. Háromszög: 3 pont, fej/nyak: 4 pont; ENTER továbblép.
+3. U: utolsó pont vagy elem visszavonása. Q: megszakítás. A 7. elem után S: ellenőrzés és mentés.
+4. Mentés előtt a program automatikusan kiértékeli a jó képet; csak akkor ment,
+   ha a színalapú szegmentáció és a geometriai/szögvizsgálat is elfogadja.
+   A kézi körberajzolás a tanítást segíti, nem helyettesíti a méréskori felismerést.
+5. Egy profil tartalmazza mind a négy receptet. Ellenőrizd a többi variáns valódi
+   példányain is, különösen az eltérő méretű/színű darabokon és csillogás mellett.
+
+Az új LED után újrakalibrálás szükséges. A v1 profil nem alakítható automatikusan
+v2-vé, mert nincsenek benne szemantikusan megnevezett elemek és közös színosztályok.
+Részletes pontozás és korlátok: [docs/variants.md](docs/variants.md).
+
+### Régi alapmaszkos kalibráció (csak `--legacy-base` módban)
+
+Az alábbi korábbi módszer v1 profilt készít, nincs A–D variánsfelismerése.
+
 1. Rögzítsd a kamerát, tedd a jó terméket a teljesen látható munkaterületre.
-2. Indítsd: `python -m qc_station calibrate --camera 0 --output profiles/cica.json`.
+2. Indítsd: `python -m qc_station calibrate --legacy-base --camera 0 --output profiles/cica.json`.
 3. SPACE-szel fagyaszd a képet. Jelölj ki kis, egyenletes **rózsaszín alapfelületet**, ENTER.
 4. A HSV csúszkákkal állítsd a maszkot úgy, hogy pontosan hét különálló alkatrész
    kapjon zöld kontúrt. A kék kontúrnak a teljes alapot kell körülfognia.
@@ -58,7 +107,7 @@ megadva, ezért a kompatibilitás és a sebesség helyszíni ellenőrzést igén
    belső színe automatikusan bekerül a profilba. A színszűrés a vörös Hue-átfordulást is kezeli.
 6. Indíts ellenőrzést és próbálj ki jó, hiányos, rossz színű, elfordított és elcsúszott mintákat.
 
-### Ha csak 5/7 vagy 6/7 elem látszik a kalibrációban
+### Ha csak 5/7 vagy 6/7 elem látszik a régi, alapmaszkos kalibrációban
 
 A színmaszk vékony alapvonalainak szakadása miatt két belső terület összeolvadhat,
 vagy egy elem belseje összenyílhat a háttérrel. Ez nem feltétlenül kamera-felbontási
@@ -86,7 +135,7 @@ nincs ilyen képpozícióhoz kötése.
 Az XDG/Wayland Qt-figyelmeztetés önmagában nem magyarázza a darabszámot, ha az ablakok
 és a kijelölés működnek; az elemszámot a képfeldolgozás maszkja határozza meg.
 
-Mentett fotó is használható: `python -m qc_station calibrate --image jo_termek.png`.
+Mentett fotó is használható: `python -m qc_station calibrate --legacy-base --image jo_termek.png`.
 Másik összeállításhoz ments külön profilt. Az elemek neve és a toleranciák a profil
 JSON-jában szerkeszthetők. A mentés felülírja az azonos nevű profilt; az eredmények
 tartalomfüggő kalibrációazonosítót tárolnak. A profilokat archiváld a mérési eredményekkel.
@@ -95,12 +144,21 @@ Az új LED-világítás felszerelése után új színkalibráció szükséges.
 ## Futtatás
 
 ```bash
-python -m qc_station run --profile profiles/cica.json --camera 0 --debug
+python -m qc_station run --profile profiles/cica-v2.json --camera 0 --debug
 # Kijelző nélküli Pi:
-python -m qc_station run --profile profiles/cica.json --camera 0 --headless
+python -m qc_station run --profile profiles/cica-v2.json --camera 0 --headless
 # Egy konkrét, már azonosított termék vizsgálata:
-python -m qc_station run --profile profiles/cica.json --once --product-instance-id 123
+python -m qc_station run --profile profiles/cica-v2.json --once --product-instance-id 123 --expected-variant B
+# Rendelési bemenetből, most JSON-fájllal:
+python -m qc_station run --profile profiles/cica-v2.json --once --order-context examples/order-context.json
 ```
+
+`--expected-variant` nélkül bármelyik ismert, jól összeállított variáns megfelelhet.
+Megadott elvárásnál a felismert variáns ettől függetlenül tárolódik, de eltéréskor FAIL.
+A három másodperces ablakban a felismerésnek is legalább 80%-ban azonosnak kell lennie,
+és a záróképnek egyeznie kell vele; megoszló variánsok esetén INCONCLUSIVE.
+A rendelési JSON egy konkrét termék pillanatképe, ezért csak `--once` mellett használható;
+új termékhez új bemenet kell. Adatbázis-lekérés ebben a változatban még nincs.
 
 `Q` kilép az ablakos futásból. Kameraolvasási hiba/megszakítás során az aktív vizsgálat
 INCONCLUSIVE eredményt kap, ha a háttértár írható; egy processzkilövés vagy áramkimaradás
@@ -138,7 +196,7 @@ Részletes szerződés és a jelenlegi backend korlátai: [docs/integration.md](
 
 ```bash
 python -m unittest discover -s tests -v
-python scripts/benchmark.py --image jo_termek.png --profile profiles/cica.json
+python scripts/benchmark.py --image jo_termek.png --profile profiles/cica-v2.json
 ```
 
 A benchmark a cél-Pi-n futtatandó, reprezentatív fotóval. Csak a képelemzést méri;

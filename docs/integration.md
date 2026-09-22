@@ -91,3 +91,30 @@ Az API-kulcsot környezeti változóban add meg; éles hálózaton HTTPS haszná
 
 A digital_twin repository ebben a munkában nem módosult, és éles backendhez
 nem történt küldés. Az end-to-end integráció a fogadó elkészültéig nincs igazolva.
+
+## Rendelés szerinti variáns (v2 képfeldolgozás)
+
+A station most fogad `--expected-variant A|B|C|D` beállítást, illetve
+`--once --order-context <JSON>` bemenetet. Utóbbi formátuma:
+
+```json
+{"order_id": 12, "product_instance_id": 123, "expected_variant": "A"}
+```
+
+A validált `OrderContext` adatstruktúra a jövőbeli adatbázis/API-adapter csatlakozási
+pontja; tényleges lekérdezés még nincs implementálva. A fájl egyszer, kameranyitás
+előtt kerül beolvasásra. Nem tekinthető élő rendelési állapotnak, és egy fájl újbóli
+futtatása nem akadályozza meg ugyanazon termék ismételt vizsgálatát. A korrelációt
+és az újramérés szabályát a fogadó/vezérlő oldalon kell meghatározni.
+
+A kimeneti esemény új, opcionális mezői: `order_id`, `expected_variant`.
+A teljes időablak `result` objektumába `detected_variant`, `expected_variant`,
+`variant_votes`, `mean_quality_score` kerül. A `last_frame` tartalmazza a geometriai,
+relatív helyzeti, élkapcsolati és színpontokat, továbbá az egyes élkapcsolatok
+szöghibáját. V1 profilnál nincs variánsfelismerés; v1-hez rendelési variáns megadása
+hibával leállítja a programot.
+
+A pontszám nem valószínűség. Ismert, de a rendeléstől eltérő variáns esetén a valóban
+felismert variáns megmarad az eredményben, a minősítés FAIL. Keveredő variánsokat
+adó időablak INCONCLUSIVE lehet. Ezek a mezők a javasolt QC-fogadó szerződéséhez
+tartoznak; a régi termékesemény-végpont nem használható helyettük.

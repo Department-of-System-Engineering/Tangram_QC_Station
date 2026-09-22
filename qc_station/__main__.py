@@ -11,6 +11,8 @@ from .calibrate import calibrate
 from .session import InspectionWindow
 from .storage import ResultStore
 from .vision import inspect, load_profile, profile_id
+from .variant_calibration import calibrate_variants
+from .order_context import load_order_context
 
 
 def camera_source(value):
@@ -18,7 +20,19 @@ def camera_source(value):
 
 
 def run(args):
+    if getattr(args, "order_context", None):
+        if not args.once:
+            raise ValueError("Use --once with --order-context; each product requires a fresh order input")
+        context = load_order_context(args.order_context)
+        if args.product_instance_id not in (None, context.product_instance_id) or getattr(args, "expected_variant", None) not in (None, context.expected_variant):
+            raise ValueError("Command line conflicts with order context")
+        args.product_instance_id = context.product_instance_id
+        args.expected_variant = context.expected_variant
+        args.order_id = context.order_id
     profile = load_profile(args.profile)
+    expected_variant = getattr(args, "expected_variant", None)
+    if expected_variant and profile.get("schema_version") != 2:
+        raise ValueError("Expected variant requires a new part-based calibration")
     if not 1 <= args.fps <= 30 or not 160 <= args.width <= 1920 or not 120 <= args.height <= 1080:
         raise ValueError("FPS must be 1..30; resolution 160x120..1920x1080")
     if args.product_instance_id is not None and not args.once:
@@ -61,8 +75,8 @@ def run(args):
             if scale < 1:
                 frame = cv2.resize(frame, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
             started = time.perf_counter()
-            result, mask = inspect(frame, profile)
-            new_cycle = window.started is None and result["base_present"] and not window.finished
+            result, mask = inspect(frame, profile, expected_variant)
+            new_cycle = window.started is None and result.get("object_present", result["base_present"]) and not window.finished
             if new_cycle:
                 identifier = str(uuid.uuid4())
                 cycle_saved = False
@@ -99,7 +113,12 @@ def run(args):
                             (0, 255, 0) if status == "PASS" else (0, 200, 255), 2)
                 cv2.imshow("Tangram QC", frame)
                 if args.debug:
-                    cv2.imshow("Base mask", mask)
+                    cv2.imshow("Detection mask", mask)
+                if profile.get("schema_version") == 2:
+                    # A separate line exposes identity independently of PASS/FAIL.
+                    cv2.putText(frame, f"Variant: {result['detected_variant'] or '?'} | expected: {expected_variant or 'auto'} | score: {result['quality_score']:.1f}",
+                                (10, 48), 0, .5, (255, 255, 255), 1)
+                    cv2.imshow("Tangram QC", frame)
                 if cv2.waitKey(1) & 255 == ord("q"):
                     if identifier and not window.finished and window.started is not None:
                         store.save(make_event(args, profile, identifier, {
@@ -128,6 +147,8 @@ def make_event(args, profile, identifier, result, video_path):
             "station_id": args.station_id, "product_instance_id": args.product_instance_id,
             "completed_at": datetime.now(timezone.utc).isoformat(),
             "calibration_id": profile_id(profile), "profile_name": profile["name"],
+            "expected_variant": getattr(args, "expected_variant", None),
+            "order_id": getattr(args, "order_id", None),
             "video_path": video_path, "result": result}
 
 
@@ -138,6 +159,8 @@ def main():
     calibration.add_argument("--camera", default="0")
     calibration.add_argument("--image")
     calibration.add_argument("--output", default="profiles/tangram.json")
+    calibration.add_argument("--variant", choices=list("ABCD"), help="Known variant of the good calibration sample")
+    calibration.add_argument("--legacy-base", action="store_true", help="Use old base-color calibration")
     station = commands.add_parser("run")
     station.add_argument("--profile", default="profiles/tangram.json")
     station.add_argument("--camera", default="0")
@@ -148,6 +171,8 @@ def main():
     station.add_argument("--min-samples", type=int, default=15)
     station.add_argument("--station-id", default="tangram-qc-01")
     station.add_argument("--product-instance-id", type=int)
+    station.add_argument("--expected-variant", choices=list("ABCD"))
+    station.add_argument("--order-context", help="JSON order input; requires --once")
     station.add_argument("--output", default="runtime")
     station.add_argument("--max-videos", type=int, default=500)
     for flag in ("headless", "debug", "once", "no-video"):
@@ -158,7 +183,12 @@ def main():
     args = parser.parse_args()
     try:
         if args.command == "calibrate":
-            calibrate(camera_source(args.camera), args.output, args.image)
+            if args.legacy_base:
+                calibrate(camera_source(args.camera), args.output, args.image)
+            elif not args.variant:
+                raise ValueError("Specify the good sample's variant: --variant A, B, C or D")
+            else:
+                calibrate_variants(camera_source(args.camera), args.output, args.variant, args.image)
         elif args.command == "run":
             if args.max_videos < 1 or (args.product_instance_id is not None and args.product_instance_id < 1):
                 raise ValueError("Video limit and product ID must be positive")
