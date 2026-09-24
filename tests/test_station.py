@@ -4,6 +4,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 from types import SimpleNamespace
+from uuid import uuid4
+import os
 
 import cv2
 import numpy as np
@@ -158,23 +160,25 @@ class WindowTests(unittest.TestCase):
 class StoreTests(unittest.TestCase):
     def test_durable_retry_and_idempotency_header(self):
         with tempfile.TemporaryDirectory() as d:
-            path = Path(d) / "results.db"
+            path = Path(d) / "delivery"
+            identifier = str(uuid4())
             store = ResultStore(path)
-            store.save({"inspection_id": "unique", "result": {"status": "PASS"}})
+            store.save({"inspection_id": identifier, "result": {"status": "PASS"}})
             store.close()
             store = ResultStore(path)
-            with patch("urllib.request.build_opener") as build:
+            with patch.dict(os.environ, {"QC_API_KEY":"test"}), patch("urllib.request.build_opener") as build:
                 opener = build.return_value
                 opener.open.side_effect = OSError("offline")
                 with self.assertRaises(OSError):
                     store.flush("http://localhost/qc")
-                self.assertEqual(store.db.execute("SELECT delivered FROM results").fetchone()[0], 0)
+                self.assertTrue(store.has_pending())
                 opener.open.side_effect = None
-                opener.open.return_value.__enter__.return_value.status = 202
+                opener.open.return_value.__enter__.return_value.status = 200
+                opener.open.return_value.__enter__.return_value.read.return_value = json.dumps({"inspection_id":identifier,"accepted":True}).encode()
                 self.assertEqual(store.flush("http://localhost/qc"), 1)
                 request = opener.open.call_args.args[0]
-                self.assertEqual(request.get_header("Idempotency-key"), "unique")
-                self.assertEqual(json.loads(request.data)["inspection_id"], "unique")
+                self.assertEqual(request.get_header("Idempotency-key"), identifier)
+                self.assertEqual(json.loads(request.data)["inspection_id"], identifier)
                 self.assertEqual(store.flush("http://localhost/qc"), 0)
             store.close()
 
@@ -206,11 +210,11 @@ class RuntimeTests(unittest.TestCase):
                 cap.read.side_effect = [(True, frame.copy()) for _ in range(100)]
                 run(args)
             cap.release.assert_called_once()
-        store = ResultStore(Path(folder) / "results.sqlite3")
-        rows = store.db.execute("SELECT payload FROM results").fetchall()
+        store = ResultStore(Path(folder) / "delivery")
+        rows = store.events()
         store.close()
         self.assertEqual(len(rows), 1)
-        return json.loads(rows[0][0])
+        return rows[0]
 
     def test_complete_inspection_and_video(self):
         with tempfile.TemporaryDirectory() as d:

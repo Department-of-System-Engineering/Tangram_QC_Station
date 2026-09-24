@@ -45,7 +45,8 @@ de nem ellenőrzi, hogy a kalibráló valóban hibátlan terméket választott-e
 Pi-n a valós időt főleg CPU, kameraillesztő, expozíció, felbontás és videóírás
 határozza meg. A mostani 10 FPS célérték, nem mért hardvergarancia. A képtárolás
 képkockánként történik; a feldolgozó RAM-igénye nem nő a videó hosszával.
-Az SQLite-adatbázis viszont hosszú távon nő: archiválási/megőrzési szabály kell.
+A helyi videók és visszaigazolt JSON-másolatok hosszú távon nőnek:
+archiválási/megőrzési szabály kell. A központi méréseket a digitális iker tárolja.
 
 ## Laboros elfogadási vizsgálat
 

@@ -168,9 +168,9 @@ class VariantTests(unittest.TestCase):
                 capture.return_value.isOpened.return_value = True
                 capture.return_value.read.side_effect = [(True, image.copy()) for _ in range(100)]
                 run(args)
-            store = ResultStore(folder / "results.sqlite3")
+            store = ResultStore(folder / "delivery")
             try:
-                event = json.loads(store.db.execute("SELECT payload FROM results").fetchone()[0])
+                event = store.events()[0]
             finally:
                 store.close()
             self.assertEqual(event["order_id"], 12)

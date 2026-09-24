@@ -1,5 +1,29 @@
 # Elvégzett szoftveres ellenőrzés
 
+## Közvetlen digitálisiker-API, 2026-09-24
+
+- Állomás: **51 sikeres teszt**, adatbázis nélkül. Valódi helyi HTTP-kapcsolaton
+  elveszett válasz utáni újraküldés, hibás visszaigazolás, hibás rendelési kontextus,
+  egymást követő termékek, variánstévesztés és kézi felismerés ellenőrizve.
+- A helyi digitális ikerben **15 sikeres QC API-teszt**, elkülönített PostgreSQL-en:
+  tranzakciós done/rework váltás, duplikáció, stale érkezés elutasítása, rollback,
+  jogosultságok, központi variánstérkép, valódi közös kapcsolatpool és migráció.
+- A meglévő digitálisiker-API betöltése és QC/production végpontjainak regisztrációja
+  sikeres; a meglévő dashboard szerződésének **7 tesztje sikeres**.
+- Az állomásnak nincs SQLite/PostgreSQL/SQLAlchemy függősége, adatbáziskapcsolata,
+  külön szervere vagy Docker-konfigurációja. Függő és visszaigazolt JSON-küldési
+  fájlokat, illetve a meglévő biztonsági videót tárolja.
+
+Környezet: Windows x64, Python 3.14.3, OpenCV 4.14.0, NumPy 2.5.3.
+Éles központi adatbázisba nem történt írás; a tesztadatbázis csak a backend
+ellenőrzésére szolgált. A Pi/kamera/PLC fizikai végpontok közötti laborpróba,
+sebességmérés és optikai kalibráció továbbra is helyszíni ellenőrzést igényel.
+
+## Korábbi kontúr- és kalibrációs ellenőrzés
+
+Az alábbi 2026-09-22-i feljegyzés történeti: az akkori SQLite-tárolást azóta
+felváltotta a küldési JSON-fájl és a digitális iker központi mentése.
+
 Dátum: 2026-09-22. Környezet: Windows x64, Python 3.14.3,
 OpenCV 4.14.0, NumPy 2.5.3; a projekt saját `.venv` környezete.
 

@@ -1,124 +1,95 @@
-# Kapcsolat a digital_twin rendszerrel
+# Közvetlen kapcsolat a digitális iker API-jával
 
-Vizsgált backend commit: `f9dc4b065a765a71ce06efa3fd249bd5a30488d8`.
-Források:
-- [API](https://github.com/Department-of-System-Engineering/digital_twin/blob/f9dc4b065a765a71ce06efa3fd249bd5a30488d8/app/dashboard/api.py)
-- [Sémák](https://github.com/Department-of-System-Engineering/digital_twin/blob/f9dc4b065a765a71ce06efa3fd249bd5a30488d8/app/dashboard/schemas.py)
-- [Üzleti logika](https://github.com/Department-of-System-Engineering/digital_twin/blob/f9dc4b065a765a71ce06efa3fd249bd5a30488d8/app/dashboard/service.py)
-
-## Ami már létezik
-
-`POST /products/{product_instance_id}/events` kérése:
-
-```json
-{"state":"arrived","processStepId":1,"assetId":1,"time":"2026-09-21T12:00:00"}
+```text
+Raspberry / qc_station ── HTTP API ── digital_twin ── meglévő közös adatbázis
 ```
 
-A state csak `arrived`, `departed`, `done`. Aktív tálcahozzárendelés kell;
-lezárt vagy törölt termékhez 409 választ ad. A `done` lezárja a terméket,
-felszabadítja a tálcát és módosítja a rendelés teljesülését. Emiatt egy QC PASS
-eredményt nem szabad automatikusan `done` eseménnyé alakítani üzleti döntés nélkül.
-A sémának nincs minősítési, hibajegyzék- vagy kalibrációmezője, és a végpontban
-nincs inspection_id alapú idempotencia.
+Az állomás képet elemez és mérést küld. A digitális iker választ terméket a
+nyomonkövetésből, kezeli a variánstérképet, tárolja a mérést és a hibákat,
+valamint módosítja a termék és rendelés állapotát. Az állomáson nincs adatbázis,
+adatbáziskapcsolat vagy külön QC-szerver. Minden rendszer központi adatforrása
+továbbra is a digitális iker meglévő adatbázisa.
 
-A SilverFrog adatgyűjtő a DC mérési végpontjait olvassa. Ez nem bizonyítja, hogy
-a QC station közvetlenül küldhet adatot arra az interfészre; DC-beírási szerződés
-nincs igazolva. A `/asset_predict` pedig karbantartási predikcióhoz tartozik.
+## Üzemmódok
 
-## Javasolt, MÉG NEM létező fogadó szerződés
+- `--mode manual`: a kamera automatikusan felismeri az A–D variánst, pontozza
+  a terméket. Beállított API mellett a mérés az ikerbe kerül, termék/rendelés
+  hozzárendelése és állapotváltás nélkül.
+- `--mode order`: az API-tól kapja az érkezési eseményt, termékazonosítót és
+  elvárt variánst. Az észlelt variáns ettől független: eltéréskor FAIL.
+  Érvényes központi azonosítás nélkül nem indít mérést.
 
-`POST /qc/inspections`, JSON, `X-API-Key`, `Idempotency-Key: <inspection_id>`.
-A station bármely konfigurált HTTP(S) URL-re tud küldeni; az útvonal javaslat.
-A `flush` külön folyamatként/parancsként fut, nincs hálózati hívás a kameraciklusban.
+A rendeléses kiválasztás alapja a termék legutolsó `visual_qc / arrived`
+nyomonkövetési eseménye, nem a rendeléslista első eleme. Több feldolgozatlan
+érkezés esetén az iker hibát jelez. Egy fizikai `visual_qc` munkaterületet
+kezelünk. A tálca/NFC és a kamerán látott darab összerendelése a nyomonkövetés
+feladata. A tálca maradjon a kamera alatt az eredmény központi átvételéig.
 
-```json
-{
-  "schema_version": 1,
-  "inspection_id": "64c559d4-09c2-4b87-a24a-4114f64029d9",
-  "station_id": "tangram-qc-01",
-  "product_instance_id": 123,
-  "completed_at": "2026-09-21T12:00:03+00:00",
-  "calibration_id": "content-hash",
-  "profile_name": "cica",
-  "video_path": "runtime/videos/64c559d4-09c2-4b87-a24a-4114f64029d9.avi",
-  "result": {
-    "status": "PASS",
-    "samples": 31,
-    "passing_samples": 29,
-    "pass_fraction": 0.93548,
-    "duration_seconds": 3.05,
-    "sampling_gap": false,
-    "failure_counts": {},
-    "last_frame": {
-      "base_present": true,
-      "passed": true,
-      "found_count": 7,
-      "parts": [],
-      "reasons": []
-    }
-  }
-}
+A foglalás után az első észlelt alkatrész indítja a mintavételt. Megmaradt a
+3 másodperces ablak, 15 minimális minta, 80%-os szavazás, jó zárókép és
+biztonsági videó. Új ciklushoz legalább 0,7 másodperces üres munkaterület kell.
+
+## Központi állapotváltás
+
+| Rendeléses eredmény | Digitális iker művelete |
+| --- | --- |
+| PASS | termék `done`, raktári done esemény, tálca felszabadítása, darabszám frissítése |
+| FAIL | termék `rework`, tálcahozzárendelés megmarad |
+| INCONCLUSIVE | mérési hiba naplózása, változatlan termékállapot |
+
+Az iker egy tranzakcióban végzi az eredménymentést és az állapotváltást.
+Egy teljesült rendelés státusza továbbra is `completed`; a régi `completed`
+termékek is késznek számítanak. Rework visszaútját a meglévő nyomonkövetés
+választja `nextStationKey: assembly1` vagy `assembly2` értékkel. Minden új
+vizsgálathoz új `arrived` esemény kell, INCONCLUSIVE utáni ismétléshez is.
+
+A központi `qc_inspections` tábla tárolja a teljes mérést, átlagpontszámot,
+azonosítókat, időket és kalibrációt; `qc_findings` a kategorizált eltéréseket.
+Kategóriák: placement, orientation, alignment, shape, size, count, color,
+variant, measurement. A mintasor átmeneti hibái PASS mellett is megjelenhetnek;
+a részletes alkatrész-metrikák és élkapcsolatok a záróképből származnak.
+`video_path` helyi fájlhivatkozás, a biztonsági videó nem kerül feltöltésre.
+
+## API az iker meglévő portján
+
+Normál végpontokon `X-API-Key` kell, az iker `INBOUND_API_KEY` értékével.
+
+- `POST /qc/claim`, `{"station_id":"tangram-qc-01"}`: foglalás vagy `null`.
+- `POST /qc/results`: teljes mérési JSON; `Idempotency-Key` = `inspection_id`.
+  Siker: 200 és `{"inspection_id":"...","accepted":true,"duplicate":false}`.
+- `GET /qc/results/{inspection_id}`: központi mérés, vagy 404, ha még nincs átvéve.
+- `GET /qc/variants`: központi terméktípusok és elvárt variánsok.
+
+Adminvégpontokhoz az iker külön `MAPPING_ADMIN_API_KEY` kulcsa kell:
+
+- `PUT /qc/variants/{product_type_id}`, `{"variant":"A"}`: variánstérkép.
+- `POST /qc/jobs/{inspection_id}/cancel`, `{"reason":"Operator removed tray"}`:
+  elakadt foglalás auditált kezelői lezárása. Nem módosít termékstátuszt.
+  Előtte állítsd le a klienst és ellenőrizd a függő küldéseket. Lezárt foglalás
+  késői eredménye elutasításra kerül; új vizsgálathoz új érkezés kell.
+
+## Hálózati hibák és újraindítás
+
+A helyi `runtime/delivery/pending/<inspection_id>.json` csak küldési biztosíték,
+nem terméknyilvántartás. Kiírása átnevezéssel atomikus. A fájl csak az adott
+mérés pozitív visszaigazolása után kerül a `sent` mappába. Elveszett HTTP-válasznál
+ugyanazt a fájlt küldi újra: az iker azonos azonosító/tartalom esetén nem hajt
+végre újabb állapotváltást. Eltérő tartalommal újrahasznált azonosító hiba.
+
+Hálózati hiba, 5xx, 408 vagy 429 esetén a folyamatos futás újrapróbál.
+Más 4xx, hibás kontextus vagy hibás visszaigazolás esetén megáll és megtartja
+a függő fájlt. Új rendelés foglalása csak a függő fájlok átvétele után lehetséges.
+HTTP-kérés mintavétel közben nem fut. Egy megszakított `--once` küldés újraindítással
+vagy külön `flush` paranccsal folytatható. A még be nem fejezett mérés hirtelen
+áramkimaradáskor elveszhet; erre az iker soha nem kap PASS-t.
+
+```bash
+# Leállított kamerás program mellett:
+python -m qc_station flush --endpoint http://twin-server:8000/qc/results --directory runtime/delivery
 ```
 
-A fenti `parts` lista csak a példa rövidítése; rendes vizsgálatnál hét elemenkénti
-metrika/hibajegyzék van benne. Kamera- és megszakítási hibáknál a result rövidített:
-`status: INCONCLUSIVE`, `reason`, `samples`. Ezeket is kezelni kell.
-A `video_path` helyi hivatkozás, **nem letöltési URL**; a küldő nem tölti fel a videót.
+A pending fájlokat ne módosítsd/ne rendeld át más termékhez. A sent másolatok
+és helyi videók archiválhatók. A régi helyi rendelési JSON kapcsolók csak
+offline diagnosztikára valók; nem helyettesítik az API rendeléses foglalását.
 
-Fogadóoldali követelmények:
-
-1. Külön QC-tábla, egyedi inspection_id, séma- és állomásellenőrzés.
-2. Azonos ID és azonos tartalom újraküldésére sikeres válasz új sor nélkül;
-   eltérő tartalomnál konfliktus. A hálózat a mentés után, a válasz előtt is megszakadhat.
-3. Csak tartós tranzakció után adjon 2xx választ; a küldő ekkor jelöli kézbesítettnek.
-4. UTC-idő explicit kezelése: a meglévő backendben több helyen naiv datetime szerepel,
-   ezért az időzónát a QC-bővítésben következetesen konvertálni kell.
-5. Éles termékhez ellenőrzött product_instance_id és tálcakapcsolat. Az offline
-   station null értéket is megenged; ilyen eredmény ne zárhasson le terméket.
-6. PASS/FAIL/INCONCLUSIVE külön tárolása; utóbbi újramérést igényel.
-
-A station `--product-instance-id` kapcsolója csak `--once` módban használható.
-Így ugyanazt az azonosítót nem használja észrevétlenül több termékre. Folyamatos
-üzemben NFC/PLC/MES indítás és azonosítóátadás lesz a következő integrációs lépés.
-Az egyszerű optikai jelenlét önmagában nem termékazonosító, és tárgycsere felismerésére
-sem megbízható, ha nincs közöttük üres állapot.
-
-A flush egyszerre legfeljebb 100 rekordot küld, kérésenként 5 s timeouttal; az első
-hibánál megáll. 4xx esetén javítás szükséges, 5xx/hálózati hiba után ismétlés.
-Nincs háttérben automatikus retry-daemon. A receiver idempotenciája kötelező akkor is,
-ha több küldő fut vagy egy küldés után a helyi kézbesítési jelölés előtt áll le a gép.
-Az API-kulcsot környezeti változóban add meg; éles hálózaton HTTPS használandó.
-
-A digital_twin repository ebben a munkában nem módosult, és éles backendhez
-nem történt küldés. Az end-to-end integráció a fogadó elkészültéig nincs igazolva.
-
-## Rendelés szerinti variáns (v2 képfeldolgozás)
-
-A station most fogad `--expected-variant A|B|C|D` beállítást, illetve
-`--once --order-context <JSON>` bemenetet. Utóbbi formátuma:
-
-```json
-{"order_id": 12, "product_instance_id": 123, "expected_variant": "A"}
-```
-
-A validált `OrderContext` adatstruktúra a jövőbeli adatbázis/API-adapter csatlakozási
-pontja; tényleges lekérdezés még nincs implementálva. A fájl egyszer, kameranyitás
-előtt kerül beolvasásra. Nem tekinthető élő rendelési állapotnak, és egy fájl újbóli
-futtatása nem akadályozza meg ugyanazon termék ismételt vizsgálatát. A korrelációt
-és az újramérés szabályát a fogadó/vezérlő oldalon kell meghatározni.
-
-A kimeneti esemény új, opcionális mezői: `order_id`, `expected_variant`.
-A teljes időablak `result` objektumába `detected_variant`, `expected_variant`,
-`variant_votes`, `mean_quality_score` kerül. A `last_frame` tartalmazza a geometriai,
-relatív helyzeti, élkapcsolati és színpontokat, továbbá az egyes élkapcsolatok
-szöghibáját. V1 profilnál nincs variánsfelismerés; v1-hez rendelési variáns megadása
-hibával leállítja a programot.
-
-A pontszám nem valószínűség. Ismert, de a rendeléstől eltérő variáns esetén a valóban
-felismert variáns megmarad az eredményben, a minősítés FAIL. Keveredő variánsokat
-adó időablak INCONCLUSIVE lehet. Ezek a mezők a javasolt QC-fogadó szerződéséhez
-tartoznak; a régi termékesemény-végpont nem használható helyettük.
-
-Nem illeszthető élgeometriánál az elemi `metrics.angle_degrees`, illetve a kapcsolati
-`error_degrees` null értékű, nem 90 fok. A `edge_geometry` hibakódot és a `passed: false`
-mezőt is kezelni kell; a hiányzó szöget nem szabad nulla hibaként aggregálni.
+Beállítás: [deployment.md](deployment.md).

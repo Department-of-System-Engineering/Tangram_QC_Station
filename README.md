@@ -15,14 +15,29 @@ az új belépési pont: `python -m qc_station`.
   Egy teljesen jó képen mind a hét elemnek meg kell felelnie. Az üres képek is
   beleszámítanak a hibákba. Egy másodpercnél nagyobb mintavételi kiesés vagy kevés
   minta esetén az eredmény INCONCLUSIVE, nem PASS.
-- Vizsgálatonként helyi MJPEG AVI biztonsági felvétel és SQLite-eredmény.
+- Vizsgálatonként helyi MJPEG AVI biztonsági felvétel és JSON küldési fájl.
   A videó az elemzett képeket tartalmazza; névleges lejátszási sebessége a `--fps`.
   Terhelés miatti képkieséskor a videó időtartama rövidebb lehet a valós vizsgálatnál;
   a tényleges időt a JSON `duration_seconds` mezője adja meg.
 - Egy eredmény termékbehelyezésenként; új ciklushoz legalább 0,7 s detektált elem
   nélküli idő kell. A v2 ciklus az első színes alkatrészjelölt felismerésekor indul,
   nem vár szereléskész jelre vagy mind a hét elem jelenlétére.
-- Külön, képfeldolgozást nem blokkoló parancs a mentett eredmények HTTP-küldéséhez.
+- Kézi, automatikus variánsfelismerés és nyomonkövetési érkezéshez kötött rendeléses mód.
+- Közvetlen kommunikáció a digitális iker meglévő API-jával. Az iker menti a
+  közös adatbázisba a mérést és a hibákat; PASS → `done`, FAIL → `rework`.
+  Az állomás nem használ adatbázist vagy Dockert.
+
+## Digitális iker kapcsolat
+
+```bash
+python -m qc_station run --mode manual --profile profiles/cica-v2.json
+# QC_API_KEY = a digitális iker INBOUND_API_KEY kulcsa:
+python -m qc_station run --mode order --profile profiles/cica-v2.json --twin-url http://twin-server:8000
+```
+
+[Üzemmódok, API és hibakategóriák](docs/integration.md) ·
+[Natív Raspberry-telepítés és beállítás](docs/deployment.md).
+Az INCONCLUSIVE mérési hibát jelent, nem módosít termékstátuszt.
 
 **Rögzített kamera és közel azonos termékirány** szükséges. A v2 kis elfordulást,
 eltolást és egyenletes skálaváltozást közösen illeszt a hét elem alapján.
@@ -194,7 +209,7 @@ python -m qc_station run --profile profiles/cica-v2.json --camera 0 --debug
 python -m qc_station run --profile profiles/cica-v2.json --camera 0 --headless
 # Egy konkrét, már azonosított termék vizsgálata:
 python -m qc_station run --profile profiles/cica-v2.json --once --product-instance-id 123 --expected-variant B
-# Rendelési bemenetből, most JSON-fájllal:
+# Régi, offline tesztbemenetből (nem a digitális iker rendeléses üzemmódja):
 python -m qc_station run --profile profiles/cica-v2.json --once --order-context examples/order-context.json
 ```
 
@@ -203,11 +218,12 @@ Megadott elvárásnál a felismert variáns ettől függetlenül tárolódik, de
 A három másodperces ablakban a felismerésnek is legalább 80%-ban azonosnak kell lennie,
 és a záróképnek egyeznie kell vele; megoszló variánsok esetén INCONCLUSIVE.
 A rendelési JSON egy konkrét termék pillanatképe, ezért csak `--once` mellett használható;
-új termékhez új bemenet kell. Adatbázis-lekérés ebben a változatban még nincs.
+új termékhez új bemenet kell. Élő rendeléses működéshez használd a `--mode order`
+és `--twin-url` kapcsolókat; a rendelést a digitális iker API-ja adja.
 
 `Q` kilép az ablakos futásból. Kameraolvasási hiba/megszakítás során az aktív vizsgálat
 INCONCLUSIVE eredményt kap, ha a háttértár írható; egy processzkilövés vagy áramkimaradás
-közbeni aktív ciklus még elveszhet. A már SQLite-ba mentett eredmények megmaradnak.
+közbeni aktív ciklus még elveszhet. A már atomikusan kiírt JSON-eredmények megmaradnak.
 
 `--seconds`, `--fps`, `--min-samples`, `--width`, `--height` állítják a futást.
 Az alapérték 640×480, 10 FPS, 3 s, 15 minta. Alacsony FPS mellett a minimális
@@ -215,26 +231,28 @@ mintaszámot/időablakot is összehangoltan kell beállítani. `--no-video` kika
 videómentést, de a három másodperces ellenőrzést nem. A teljes felvétel nincs RAM-ban:
 a kód egy képkockát, munkamaszkokat és összesítő számlálókat tart.
 
-Eredmények: `runtime/results.sqlite3`; videók: `runtime/videos/`.
+Függő küldések: `runtime/delivery/pending/`; visszaigazolt másolatok:
+`runtime/delivery/sent/`; videók: `runtime/videos/`.
 Az alapértelmezett 500 videós határnál a program megáll, nem töröl korábbi bizonyítékot.
-A határ `--max-videos` kapcsolóval módosítható. A SQLite-adatbázis archiválását és a
-szabad tárhely felügyeletét az üzemeltetésben meg kell oldani; ezek nem korlátos méretűek.
+A határ `--max-videos` kapcsolóval módosítható. A visszaigazolt JSON-másolatok és
+videók archiválását és a szabad tárhely felügyeletét az üzemeltetés kezeli.
 A fejlesztői profilok és mérési adatok nincsenek Gitbe véve.
 
 ## Digital twin kapcsolat
 
-A jelenleg vizsgált digital_twin **nem rendelkezik QC-eredményt fogadó végponttal**.
-Az új küldő kész egy ilyen végponthoz, de a fogadóoldali bővítés még szükséges.
-Nincs automatikus termékbefejezés vagy rendelésmódosítás.
+A helyi `digital_twin` projekt meglévő API-ja QC-végpontokkal bővült. Az
+állomásnak csak az API címe és kulcsa kell. A mérést, hibajegyzéket és a termék
+`done/rework` állapotát az iker kezeli ugyanabban a közös adatbázisban.
 
 ```bash
-# Csak az integrációs dokumentum szerinti fogadó megvalósítása után:
-python -m qc_station flush --endpoint https://YOUR-HOST/qc/inspections
+# A kamerás program leállítása után függő fájlok kézi újraküldése:
+python -m qc_station flush --endpoint https://YOUR-HOST/qc/results
 ```
 
-A `QC_API_KEY` környezeti változó opcionális `X-API-Key` fejlécet ad.
-Hálózati hibánál a rekord helyben marad; a parancs újra futtatható.
-A fogadónak az `inspection_id` alapján duplikációmentesnek kell lennie.
+A `QC_API_KEY` kötelező a hálózati működéshez. Az iker `INBOUND_API_KEY`
+értékét kell beállítani, és `X-API-Key` fejlécben kerül elküldésre.
+Hálózati hibánál a küldési JSON megmarad; ugyanazzal az azonosítóval újraküldhető.
+Csak az adott mérés pozitív visszaigazolása után kerül a `sent` mappába.
 Részletes szerződés és a jelenlegi backend korlátai: [docs/integration.md](docs/integration.md).
 
 ## Ellenőrzés és teljesítmény
