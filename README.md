@@ -154,6 +154,22 @@ is ellenőrzi a rendszer. Ha az élek nem párosíthatók, `edge_geometry` hiba 
 Korábban készült profilnál a jelöltméret-küszöb még a régi érték: a mentett kijelölés
 `--resume` betöltésével és `S` mentéssel újratanítható, újrakattintás nélkül.
 
+### Hiányos színmaszk egy egyébként egyenes él mentén
+
+A 2026-09-24-i testkontúr hibájára az élillesztés kapott egy korlátozott második
+lépést. Ha a szigorú illesztés nem sikerül, a megmaradt kontúrpontokból méri az
+egyeneseket. Minden oldalon legalább 9/12 hosszirányú szakaszban kell mért
+támasznak lennie. A nagy vagy mély hiányt nem tölti ki automatikusan; a jelölt
+poligon területe legfeljebb 12%-kal térhet el a nyers kontúrétól. Az elvárt
+referenciaszögeket nem használja az illesztéshez, ezért az elfordulás mérhető marad.
+
+A pontsúlyozás egyenletes kontúrhosszon történik: a recés rész sok töréspontja
+nem kap több súlyt, mint egy hosszú tiszta él. A nyers maszk, terület- és alakmérés
+nem változik, a párhuzamossági/merőlegességi vizsgálat továbbra is működik.
+A tűrésen belüli fizikai kis csorbulás és színmaszk-kiesés ebből a maszkból nem
+különböztethető meg biztosan; az illesztés nem bizonyítja a felület épségét.
+A mentett kalibrációs kijelölés az új kóddal `--resume` segítségével újraellenőrizhető.
+
 ### Régi alapmaszkos kalibráció (csak `--legacy-base` módban)
 
 Az alábbi korábbi módszer v1 profilt készít, nincs A–D variánsfelismerése.

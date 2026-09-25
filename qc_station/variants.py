@@ -48,7 +48,7 @@ def angle_difference(a, b):
     return abs((a - b + 90) % 180 - 90)
 
 
-def fit_edge_polygon(contour, vertices):
+def _fit_strict_edge_polygon(contour, vertices):
     """Fit measured straight sides across tiny bevels; never change raw area/shape."""
     c = np.asarray(contour, np.float32)
     perimeter = cv2.arcLength(c, True)
@@ -105,6 +105,82 @@ def fit_edge_polygon(contour, vertices):
         corners.append(point+t*direction)
     polygon = np.asarray(corners, np.float32).reshape(-1, 1, 2)
     return polygon if valid(polygon) else None
+
+
+def fit_edge_polygon(contour, vertices):
+    """Measure sides despite limited inward mask dropout; keep raw shape/area.
+
+    The fallback uses only observed boundary evidence, never reference angles.
+    A hull proposes sides but cannot by itself establish an accepted polygon.
+    """
+    fitted = _fit_strict_edge_polygon(contour, vertices)
+    if fitted is not None or vertices not in (3, 4):
+        return fitted
+    c = np.asarray(contour, np.float32).reshape(-1, 1, 2)
+    area = cv2.contourArea(c)
+    diagonal = float(np.linalg.norm(np.ptp(c.reshape(-1, 2), axis=0)))
+    if area <= 0 or diagonal <= 0:
+        return None
+    # Uniform arc-length sampling avoids giving CHAIN_APPROX_SIMPLE's dense
+    # staircase/notch vertices more weight than long clean sides.
+    points = c.reshape(-1, 2)
+    delta = np.roll(points, -1, axis=0) - points
+    lengths = np.linalg.norm(delta, axis=1)
+    nonzero = lengths > 0
+    points, delta, lengths = points[nonzero], delta[nonzero], lengths[nonzero]
+    accumulated = np.concatenate(([0.0], np.cumsum(lengths)))
+    distances = np.linspace(0, accumulated[-1], 512, endpoint=False)
+    segments = np.minimum(np.searchsorted(accumulated, distances, side="right")-1, len(points)-1)
+    samples = points[segments] + delta[segments] * ((distances-accumulated[segments])/lengths[segments])[:, None]
+    samples = samples.astype(np.float32)
+    hull = cv2.convexHull(c)
+    perimeter = cv2.arcLength(hull, True)
+    for epsilon in (.015, .02, .025, .03):
+        proposal = cv2.approxPolyDP(hull, epsilon*perimeter, True).reshape(-1, 2)
+        if len(proposal) != vertices:
+            continue
+        lines = []
+        for start, end in zip(proposal, np.roll(proposal, -1, axis=0)):
+            vector = end-start
+            length = float(np.linalg.norm(vector))
+            if length < .08*perimeter:
+                break
+            direction = vector/length
+            offset = samples-start
+            along = offset @ direction
+            normal = np.abs(offset[:, 0]*direction[1]-offset[:, 1]*direction[0])
+            keep = (normal <= .015*diagonal) & (along >= 0) & (along <= length)
+            # Each side needs distributed measured support, not just its corners.
+            bins = np.minimum((along[keep]/length*12).astype(int), 11)
+            if keep.sum() < 8 or len(np.unique(bins)) < 9:
+                break
+            vx, vy, x, y = cv2.fitLine(samples[keep], cv2.DIST_HUBER, 0, .001, .001).ravel()
+            lines.append((np.array([x, y]), np.array([vx, vy])))
+        if len(lines) != vertices:
+            continue
+        corners = []
+        for i, (point, direction) in enumerate(lines):
+            other, second = lines[(i+1) % vertices]
+            matrix = np.column_stack((direction, -second))
+            if abs(np.linalg.det(matrix)) < .05:
+                break
+            corners.append(point + np.linalg.solve(matrix, other-point)[0]*direction)
+        if len(corners) != vertices:
+            continue
+        polygon = np.asarray(corners, np.float32).reshape(-1, 1, 2)
+        if not np.isfinite(polygon).all() or not cv2.isContourConvex(polygon):
+            continue
+        if abs(cv2.contourArea(polygon)/area-1) > .12:
+            continue
+        deviation = np.array([cv2.pointPolygonTest(polygon, tuple(map(float, p)), True) for p in samples]) / diagonal
+        # Limited inward dropout only. Outward appendages, deep missing sections
+        # and extensive boundary loss must not be hidden by a convex hull.
+        if deviation.min() < -.03 or deviation.max() > .10 or np.mean(deviation > .03) > .15:
+            continue
+        if any(abs(cv2.pointPolygonTest(c, tuple(map(float, p)), True)) > .08*diagonal for p in polygon.reshape(-1, 2)):
+            continue
+        return polygon
+    return None
 
 
 def edge_correspondence(reference, observed):
