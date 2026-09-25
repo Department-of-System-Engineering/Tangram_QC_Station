@@ -20,6 +20,7 @@ from .twin import TwinClient
 from .fixed_layout import sample_colors
 from .config import load_environment
 from .diagnostics import save_detection
+from .acceptance import accept_five_parts
 
 
 def camera_source(value):
@@ -144,6 +145,8 @@ def run(args):
                 frame = cv2.resize(frame, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
             started = time.perf_counter()
             result, mask = inspect(frame, profile, expected_variant)
+            if not getattr(args, 'strict_quality', False):
+                result = accept_five_parts(result, profile)
             ready = mode != "order" or context is not None
             new_cycle = ready and window.started is None and result.get("object_present", result["base_present"]) and not window.finished
             if new_cycle:
@@ -275,6 +278,8 @@ def main():
     station.add_argument("--order-context", help="JSON order input; requires --once")
     station.add_argument("--output", default="runtime")
     station.add_argument("--max-videos", type=int, default=500)
+    station.add_argument('--strict-quality', action='store_true',
+                         help='Require all seven parts and passing geometry; default: five detected parts and a unique matching variant')
     for flag in ("headless", "debug", "once", "no-video"):
         station.add_argument("--" + flag, action="store_true")
     sender = commands.add_parser("flush", help="Retry pending JSON results to the digital twin API")

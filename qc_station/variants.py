@@ -311,6 +311,23 @@ def detect_parts(frame, profile):
     x, y, w, h = profile["roi"]
     if "color_model" in profile:
         masks = palette_masks(frame[y:y+h, x:x+w], profile["color_model"])
+        # Lab swatches can fragment one surface under uneven illumination.
+        # Recover only connected regions supported by the independently sampled
+        # HSV range and at least 20% confident Lab evidence. Never use template
+        # polygons to fill a surface or bridge a separating edge.
+        hsv = cv2.cvtColor(frame[y:y+h, x:x+w], cv2.COLOR_BGR2HSV)
+        for name, evidence in list(masks.items()):
+            support = hsv_mask(hsv, profile["colors"][name])
+            support = cv2.morphologyEx(support, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+            count, labels, stats, _ = cv2.connectedComponentsWithStats(support)
+            votes = np.bincount(labels[evidence > 0], minlength=count)
+            accepted = np.uint8(votes >= .2*stats[:, cv2.CC_STAT_AREA])*255
+            # Do not grow foreground into a color region connected to the ROI
+            # boundary (e.g. pale red product on a similar pink background).
+            accepted[np.unique(np.concatenate((labels[0], labels[-1], labels[:, 0], labels[:, -1])))] = 0
+            accepted[0] = 0
+            masks[name] = cv2.bitwise_or(evidence, accepted[labels])
+
     else:
         hsv = cv2.cvtColor(frame[y:y+h, x:x+w], cv2.COLOR_BGR2HSV)
         masks = {name: hsv_mask(hsv, bounds) for name, bounds in profile["colors"].items()}
@@ -328,7 +345,16 @@ def detect_parts(frame, profile):
         if "color_model" in profile:
             mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
-        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        # A background ring may enclose disconnected real pieces. RETR_EXTERNAL
+        # on the whole mask would hide those pieces along with the ring's holes.
+        count, labels, stats, _ = cv2.connectedComponentsWithStats(mask)
+        contours = []
+        for label in range(1, count):
+            if stats[label, cv2.CC_STAT_AREA] < profile.get("min_candidate_area_pixels", max(30, w*h*.001)):
+                continue
+            component = np.uint8(labels == label)*255
+            outlines, _ = cv2.findContours(component, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            contours.extend(outlines)
         for c in contours:
             area = cv2.contourArea(c)
             if area < profile.get("min_candidate_area_pixels", max(30, w*h*0.001)):

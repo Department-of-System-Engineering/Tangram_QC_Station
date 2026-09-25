@@ -11,8 +11,12 @@ az új belépési pont: `python -m qc_station`.
 - A–D variáns felismerése, rendelés szerinti elvárt variáns ellenőrzése,
   külön geometriai, relatív helyzeti, párhuzamossági/merőlegességi és színpontszám.
 - Alapértelmezésben **3 másodperces vizsgálat**, legfeljebb 10 elemzett kép/s.
-- Legalább 15 minta, legalább 80% teljesen jó képkocka és jó zárókép kell a PASS-hoz.
-  Egy teljesen jó képen mind a hét elemnek meg kell felelnie. Az üres képek is
+- Legalább 15 minta, legalább 80% elfogadott képkocka és elfogadott zárókép kell a PASS-hoz.
+  Alapértelmezésben egy képen legalább **5 felismert elem** és egyértelmű A–D variáns
+  szükséges; rendeléses módban annak a várt variánssal is egyeznie kell.
+  Az alak- és szöghibák megmaradnak a mérésben és a pontszámban, de nem tiltják a PASS-t.
+  A `--strict-quality` kapcsolóval a korábbi, mind a hét elem megfelelőségét megkövetelő
+  ellenőrzés használható. Az üres képek is
   beleszámítanak a hibákba. Egy másodpercnél nagyobb mintavételi kiesés vagy kevés
   minta esetén az eredmény INCONCLUSIVE, nem PASS.
 - Vizsgálatonként helyi MJPEG AVI biztonsági felvétel és JSON küldési fájl.
@@ -116,6 +120,13 @@ képen is mintázhatsz: `sample-colors --image .../frame.png`.
 A sablon az illesztés után szolgál a háttérfoltok térbeli szűrésére, nem vágja formára a kontúrokat.
 A vizsgálati helyektől távoli tárgyak nem részei a darabszámellenőrzésnek.
 Alkatrészhez hozzáolvadt háttér vagy fel nem ismert elem továbbra is hibát okozhat.
+
+A Lab-színmodell által széttördelt felületeket a mentett HSV-színtartomány
+összefüggő foltjaival egészíti ki, ha a folt legalább 20%-át a Lab-modell is az
+adott színhez sorolja. Munkaterület széléhez kapcsolódó folttal nem bővít.
+Ez mért színpixeleket használ, nem sablonból pótolja az alakzatot; a geometriai
+ellenőrzések változatlanul érvényesek. A háttér által körülvett, de attól különálló
+alkatrészeket is külön összefüggő komponensként vizsgálja.
 
 ## Opcionális teljes alakzatkalibráció
 
