@@ -88,7 +88,7 @@ def _fit_strict_edge_polygon(contour, vertices):
         offset = points - outline[i]
         along = offset @ direction
         distance = np.abs(offset[:, 0]*direction[1] - offset[:, 1]*direction[0])
-        support = points[(distance <= .015*diagonal) & (along >= -.02*diagonal) &
+        support = points[(distance <= .025*diagonal) & (along >= -.02*diagonal) &
                          (along <= lengths[i]+.02*diagonal)]
         if len(support) < 2:
             return None
@@ -108,6 +108,19 @@ def _fit_strict_edge_polygon(contour, vertices):
 
 
 def fit_edge_polygon(contour, vertices):
+    # OpenCV line fitting uses absolute convergence tolerances. Work in a
+    # consistent coordinate range even after product registration/normalization.
+    c = np.asarray(contour, np.float32).reshape(-1, 1, 2)
+    origin = c.mean(axis=0)
+    span = float(np.ptp(c.reshape(-1, 2), axis=0).max())
+    if span <= 0:
+        return None
+    scale = 1000.0/span
+    fitted = _fit_edge_polygon_scaled((c-origin)*scale, vertices)
+    return None if fitted is None else (fitted/scale+origin).astype(np.float32)
+
+
+def _fit_edge_polygon_scaled(contour, vertices):
     """Measure sides despite limited inward mask dropout; keep raw shape/area.
 
     The fallback uses only observed boundary evidence, never reference angles.
@@ -149,7 +162,7 @@ def fit_edge_polygon(contour, vertices):
             offset = samples-start
             along = offset @ direction
             normal = np.abs(offset[:, 0]*direction[1]-offset[:, 1]*direction[0])
-            keep = (normal <= .015*diagonal) & (along >= 0) & (along <= length)
+            keep = (normal <= .025*diagonal) & (along >= 0) & (along <= length)
             # Each side needs distributed measured support, not just its corners.
             bins = np.minimum((along[keep]/length*12).astype(int), 11)
             if keep.sum() < 8 or len(np.unique(bins)) < 9:
@@ -305,16 +318,6 @@ def detect_parts(frame, profile):
     found = []
     debug = np.zeros((h, w), np.uint8)
     occupied = np.zeros((h, w), np.uint8)
-    search = None
-    if profile.get("geometry_mode") == "fixed":
-        search = np.zeros_like(occupied)
-        polygons = [np.rint(np.asarray(part["contour"])*max(profile["frame_size"])-[x, y]).astype(np.int32)
-                    for part in profile["parts"]]
-        # Separate drawing calls keep overlapping search polygons a union.
-        for polygon in polygons:
-            cv2.fillPoly(search, [polygon], 255)
-        margin = profile["search_margin_pixels"]
-        search = cv2.dilate(search, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2*margin+1, 2*margin+1)))
     for color, mask in masks.items():
         # Ambiguous color pixels cannot be evidence for two pieces.
         others = np.zeros_like(mask)
@@ -333,13 +336,6 @@ def detect_parts(frame, profile):
             cx, cy, cw, ch = cv2.boundingRect(c)
             if cx == 0 or cy == 0 or cx+cw >= w or cy+ch >= h:
                 continue  # colored background crossing the work-area boundary
-            if search is not None:
-                component = np.zeros_like(mask)
-                cv2.drawContours(component, [c], -1, 255, -1)
-                if np.count_nonzero((component > 0) & (search > 0)) < .8*np.count_nonzero(component):
-                    continue  # outside fixed inspection locations, e.g. blue board rim
-                # Never clip a component to a template: that could manufacture
-                # a valid triangle from background or a merged/damaged piece.
             inside = interior_mask(mask.shape, c) > 0
             fractions = {name: float(np.count_nonzero((m > 0) & inside) / max(1, inside.sum()))
                          for name, m in masks.items()}
@@ -390,6 +386,72 @@ def align(reference, observed, mapping):
     return [(((c-ac) @ rotation)*scale+bc).astype(np.float32) for c in observed]
 
 
+def register_product(reference, observed):
+    """Estimate a proper similarity pose from centroid pairs, independent of color.
+
+    Batched hypotheses cover the full circle. One bounded assignment/refinement
+    follows the best consensus; individual contours are never reshaped.
+    """
+    if len(observed) < 3 or len(observed) > 16:
+        return observed, assign_parts(reference, observed)
+    rc = np.array([center(c) for c in reference])
+    oc = np.array([center(c) for c in observed])
+    ra = np.array([cv2.contourArea(c) for c in reference])
+    oa = np.array([cv2.contourArea(c) for c in observed])
+    hypotheses = []
+    for i, j in itertools.combinations(range(7), 2):
+        rv = rc[j]-rc[i]
+        if np.linalg.norm(rv) < .15:
+            continue
+        for k, l in itertools.permutations(range(len(observed)), 2):
+            ov = oc[l]-oc[k]
+            length = np.dot(ov, ov)
+            if length < 1e-8:
+                continue
+            cosine = np.dot(ov, rv)/length
+            sine = (ov[0]*rv[1]-ov[1]*rv[0])/length
+            matrix = np.array([[cosine, sine], [-sine, cosine]])
+            scale = np.hypot(cosine, sine)
+            if .4 <= scale <= 2.5:
+                hypotheses.append((matrix, rc[i]-oc[k]@matrix, scale))
+    if not hypotheses:
+        return observed, assign_parts(reference, observed)
+    matrices = np.array([h[0] for h in hypotheses])
+    offsets = np.array([h[1] for h in hypotheses])
+    scales = np.array([h[2] for h in hypotheses])
+    positions = np.einsum('nj,hjk->hnk', oc, matrices)+offsets[:, None, :]
+    costs = np.linalg.norm(positions[:, None, :, :]-rc[None, :, None, :], axis=-1)
+    costs += .1*np.abs(np.log(np.maximum(oa[None, None, :]*scales[:, None, None]**2, 1e-9)/ra[None, :, None]))
+    # Penalize duplicate nearest matches; missing/outlier pieces cannot dominate pose.
+    nearest = costs.argmin(axis=2)
+    scores = np.minimum(costs.min(axis=2), .25).sum(axis=1)
+    for i, j in itertools.combinations(range(7), 2):
+        scores += .15*(nearest[:, i] == nearest[:, j])
+    best = int(scores.argmin())
+    transformed = [(c@matrices[best]+offsets[best]).astype(np.float32) for c in observed]
+    mapping = assign_parts(reference, transformed)
+    transformed = align(reference, transformed, mapping)
+    return transformed, mapping
+
+
+def filter_pose_background(reference, observed, detected, profile):
+    """Discard whole remote background components only after global registration."""
+    size = max(profile['frame_size'])
+    search = np.zeros((size, size), np.uint8)
+    for contour in reference:
+        cv2.fillPoly(search, [np.rint(contour*size).astype(np.int32)], 255)
+    margin = profile['search_margin_pixels']
+    search = cv2.dilate(search, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2*margin+1, 2*margin+1)))
+    keep = []
+    for j, contour in enumerate(observed):
+        component = np.zeros_like(search)
+        cv2.fillPoly(component, [np.rint(contour*size).astype(np.int32)], 255)
+        total = max(1, cv2.contourArea(contour)*size*size)
+        if np.count_nonzero((component > 0) & (search > 0)) >= .8*total:
+            keep.append(j)
+    return [observed[j] for j in keep], [detected[j] for j in keep]
+
+
 def inspect_variants(frame, profile, expected_variant=None):
     if expected_variant is not None and expected_variant not in VARIANTS:
         raise ValueError("Expected variant must be A, B, C or D")
@@ -406,9 +468,12 @@ def inspect_variants(frame, profile, expected_variant=None):
     fixed = profile.get("geometry_mode") == "fixed"
     observed = ([(d["contour"] + np.array(profile["roi"][:2], np.float32))/max(profile["frame_size"])
                  for d in detected] if fixed else normalize([d["contour"] for d in detected]))
-    mapping = assign_parts(reference, observed)
-    if not fixed:
-        observed = align(reference, observed, mapping)
+    observed, mapping = register_product(reference, observed)
+    if fixed:
+        observed, detected = filter_pose_background(reference, observed, detected, profile)
+        mapping = assign_parts(reference, observed)
+        result['found_count'] = len(detected)
+        result['reasons'] = [] if len(detected) == 7 else ['part_count']
     limits = profile["thresholds"]
     edge_maps, colors, fractions, geometry_scores = {}, {}, {}, []
     for i, name in enumerate(PART_NAMES):

@@ -55,9 +55,57 @@ class FixedLayoutTests(unittest.TestCase):
                 cv2.rectangle(frame, (280, 260), (342, 315), COLORS["red"], -1)
             self.assertFalse(inspect_variants(frame, self.profile)[0]["passed"], kind)
 
-    def test_global_displacement_is_not_aligned_away(self):
-        frame = cv2.warpAffine(scene(), np.float32([[1, 0, 32], [0, 1, 0]]), (640, 480))
-        self.assertFalse(inspect_variants(frame, self.profile)[0]["passed"])
+    def test_full_circle_all_variants(self):
+        for variant in VARIANTS:
+            for angle in (0, 17, 45, 90, 137, 180, 225, 270, 319):
+                matrix = cv2.getRotationMatrix2D((330, 240), angle, .75)
+                frame = cv2.warpAffine(scene(variant), matrix, (640, 480),
+                                       borderValue=COLORS["background"])
+                result, _ = inspect_variants(frame, self.profile, variant)
+                self.assertTrue(result["passed"], (variant, angle, result))
+                self.assertEqual(result["detected_variant"], variant)
+
+    def test_global_translation_is_accepted(self):
+        frame = cv2.warpAffine(scene(), np.float32([[1, 0, -12], [0, 1, 6]]), (640, 480),
+                               borderValue=COLORS["background"])
+        self.assertTrue(inspect_variants(frame, self.profile)[0]["passed"])
+
+    def test_learned_geometry_also_accepts_full_rotation(self):
+        profile = copy.deepcopy(self.profile)
+        profile["geometry_mode"] = "learned"
+        for angle in (41, 90, 180, 270):
+            frame = cv2.warpAffine(scene(), cv2.getRotationMatrix2D((330, 240), angle, .75),
+                                   (640, 480), borderValue=COLORS["background"])
+            self.assertTrue(inspect_variants(frame, profile)[0]["passed"], angle)
+
+    def test_rotated_product_with_remote_background(self):
+        frame = cv2.warpAffine(scene(), cv2.getRotationMatrix2D((330, 240), 90, .75),
+                               (640, 480), borderValue=COLORS["background"])
+        cv2.rectangle(frame, (100, 30), (115, 440), COLORS["blue"], -1)
+        result, _ = inspect_variants(frame, self.profile)
+        self.assertTrue(result["passed"], result["reasons"])
+        self.assertEqual(result["found_count"], 7)
+
+    def test_rotation_does_not_hide_defects_or_reflection(self):
+        for kind in ("missing", "rotated", "displaced", "reflection", "wrong_variant"):
+            frame = scene()
+            polygon = np.asarray(CAT_LAYOUT["polygons"][4], np.int32)
+            if kind in ("missing", "rotated", "displaced"):
+                cv2.fillPoly(frame, [polygon], COLORS["background"])
+                if kind == "rotated":
+                    polygon = cv2.transform(polygon.reshape(-1, 1, 2).astype(np.float32),
+                        cv2.getRotationMatrix2D(tuple(polygon.mean(axis=0)), 22, 1)).astype(np.int32)
+                elif kind == "displaced":
+                    polygon = polygon + [35, 0]
+                if kind != "missing":
+                    cv2.fillPoly(frame, [polygon], COLORS["red"])
+            if kind == "reflection":
+                frame = cv2.flip(frame, 1)
+            for angle in (37, 90, 213):
+                rotated = cv2.warpAffine(frame, cv2.getRotationMatrix2D((330, 240), angle, .75),
+                                        (640, 480), borderValue=COLORS["background"])
+                result, _ = inspect_variants(rotated, self.profile, "B" if kind == "wrong_variant" else "A")
+                self.assertFalse(result["passed"], (kind, angle))
 
     def test_blue_board_components_outside_search_locations_are_ignored(self):
         frame = scene()

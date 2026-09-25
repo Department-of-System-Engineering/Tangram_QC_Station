@@ -39,10 +39,11 @@ python -m qc_station run --mode order --profile profiles/cica-v2.json --twin-url
 [Natív Raspberry-telepítés és beállítás](docs/deployment.md).
 Az INCONCLUSIVE mérési hibát jelent, nem módosít termékstátuszt.
 
-**Rögzített kamera és közel azonos termékirány** szükséges. A tanított v2 profil kis elfordulást,
-eltolást és egyenletes skálaváltozást közösen illeszt a hét elem alapján; a fix
-sablonos, csak színmintás profil ezeket nem kompenzálja.
-Tetszőleges forgatást, tükrözést és perspektívaváltozást nem kezel. A kalibrált
+**A v2 profilok a termék síkbeli elfordulását a teljes 360°-os tartományban kezelik**,
+a korábban mentett, csak színmintás profilok is. Az eltolást és egyenletes
+skálaváltozást a felismert elemek közös illesztése kompenzálja. Az egyes darabok
+egymáshoz képesti helyzetét és szögét továbbra is ellenőrzi. Tükrözést és
+perspektívaváltozást nem kompenzál. Mind a hét elem legyen teljesen a munkaterületen. A kalibrált
 munkaterület és feldolgozási felbontás maradjon ugyanaz. A kalibrált piros/sárga/kék
 elemeknek optikailag elkülöníthetőknek kell lenniük: egymáshoz érő azonos színű
 elemeket, illetve a háttérrel teljesen összeolvadó darabot nem lehet megbízhatóan
@@ -88,15 +89,16 @@ python -m qc_station run --mode manual --profile profiles/cica-v2.json
    A kék alkatrész és a kék háttér külön mintacsoportba tartozik.
 4. A végén a zöld vonalak a fix sablont mutatják, nem a mért kontúrokat.
    `S` menti a színeket akkor is, ha az aktuális kép FAIL. Ez nem fogadja el a terméket.
-   Ha a sablon nem illeszkedik a kamera nézetéhez, `Q`.
+   A sablon referenciairányt mutat; az élőkép terméke lehet elfordítva.
 
-Futáskor továbbra is ellenőrzi az alakot, területet, rögzített helyzetet, szögeket,
-élkapcsolatokat, darabszámot és variánst. A termék eltolását vagy elfordulását ebben
-a módban nem illeszti vissza a referenciahelyre. A sablon a jelenlegi kameraállásra
-vonatkozik; másik fix recept a `--layout` JSON-paraméterrel adható meg. Nyers mentett
+Futáskor továbbra is ellenőrzi az alakot, relatív területet, egymáshoz képesti helyzetet,
+szögeket, élkapcsolatokat, darabszámot és variánst. Először a teljes terméket illeszti
+a referenciairányhoz, majd ezen a közös koordinátarendszeren belül pontoz.
+Az illesztés nem használ színcímkéket, ezért a rossz variánst nem igazítja a várt színekhez.
+Másik recept a `--layout` JSON-paraméterrel adható meg. Nyers mentett
 képen is mintázhatsz: `sample-colors --image .../frame.png`.
 
-A sablon a háttérfoltok térbeli szűrésére szolgál, nem vágja formára a kontúrokat.
+A sablon az illesztés után szolgál a háttérfoltok térbeli szűrésére, nem vágja formára a kontúrokat.
 A vizsgálati helyektől távoli tárgyak nem részei a darabszámellenőrzésnek.
 Alkatrészhez hozzáolvadt háttér vagy fel nem ismert elem továbbra is hibát okozhat.
 

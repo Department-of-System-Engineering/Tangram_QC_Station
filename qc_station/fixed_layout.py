@@ -1,4 +1,4 @@
-"""Fixed camera recipe; colors are sampled, geometry is not learned from a product."""
+"""Preset geometry recipe; product pose is detected and only colors are sampled."""
 import json
 from pathlib import Path
 import cv2
@@ -98,7 +98,8 @@ def sample_colors(source, output, image=None, layout_path=None):
             cv2.polylines(preview, [c], True, (0, 255, 0), 1)
             cv2.putText(preview, name, tuple(c[0]), 0, .4, (255, 255, 255), 1)
         print(f"Fixed template preview. Detected {result['found_count']}/7; current frame: {'PASS' if result['passed'] else 'FAIL'}.")
-        print("S: save color settings (does NOT accept the product). Q: cancel if template does not match camera pose.")
+        print("Template shows reference orientation; product rotation is detected automatically.")
+        print("S: save color settings (does NOT accept the product). Q: cancel.")
         cv2.imshow("Fixed template (not detected contours)", preview)
         cv2.imshow("Actual detection mask", mask)
         while True:
