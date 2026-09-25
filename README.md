@@ -43,9 +43,15 @@ python -m qc_station run --mode order --profile profiles/cica-v2.json --twin-url
 [Natív Raspberry-telepítés és beállítás](docs/deployment.md).
 Az INCONCLUSIVE mérési hibát jelent, nem módosít termékstátuszt.
 
-Rendeléses módban a `WAITING_FOR_TRACKING` azt jelenti, hogy az iker nem adott
-vizsgálati feladatot. A termék legutóbbi nyomonkövetési eseménye `visual_qc` / `arrived`
-legyen, aktív rendeléshez és vizsgálható termékhez tartozzon. A terminál kiírja az
+Rendeléses módban legalább öt elem észlelésekor kér feladatot az ikertől.
+Meglévő `visual_qc / arrived` terméket használ, ennek hiányában a következő
+nyitott rendelési darabot foglalja le (prioritás, rendelésdátum, tételsorrend).
+Ehhez nem szükséges előzetes gyártás vagy tálcahozzárendelés: az iker rögzíti
+a közvetlen QC-érkezést. `WAITING_FOR_ORDER` esetén nincs kiadható darab.
+A régi, kizárólag nyomonkövetéses működés: `--claim-source tracking`.
+**Mindkét projektet frissíteni kell, majd a digitális iker API-ját újraindítani.**
+A `body.product_present: Extra inputs are not permitted` régi szerveroldali API-t jelez.
+A terminál kiírja az
 átvett rendelés-, termékazonosítót és a várt variánst. A `RESULT_ACKNOWLEDGED` a
 központi eredménymentés visszaigazolása. PASS esetén az iker a kapcsolódó terméket
 `done` állapotba állítja, és annak rendelési sorában frissíti a `completed_quantity`

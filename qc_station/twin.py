@@ -36,6 +36,9 @@ def describe_http_error(error, url, key):
         detail = detail.replace(key, "[redacted]")
     detail = " ".join(detail.split())[:1000]
     hint = ""
+    if 'product_present' in detail and ('Extra inputs' in detail or 'extra' in detail.lower()):
+        hint = ('; digital twin API is older than this station: update app/qc/api.py on the twin server '
+                'and restart the API. --claim-source tracking uses the old tracking-only workflow')
     if detail == "Product type has no qc_variant_mapping":
         hint = "; configure the product type's A-D variant in the digital twin (GET /qc/variants; admin PUT /qc/variants/{product_type_id})"
     error.msg = f"POST {urlsplit(url).path}: {detail}{hint}"

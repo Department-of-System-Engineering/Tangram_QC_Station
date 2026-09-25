@@ -22,6 +22,16 @@ from test_variants import scene
 
 
 class TwinTests(unittest.TestCase):
+    def test_old_server_claim_schema_explains_required_update(self):
+        body = {'detail':[{'loc':['body','product_present'], 'msg':'Extra inputs are not permitted'}]}
+        error = urllib.error.HTTPError(self.url+'/qc/claim',400,'Bad Request',{},
+                                      io.BytesIO(json.dumps(body).encode()))
+        with patch('urllib.request.OpenerDirector.open',side_effect=error):
+            with self.assertRaises(urllib.error.HTTPError) as caught:
+                TwinClient(self.url,'test').claim(product_present=True)
+        self.assertIn('update app/qc/api.py',str(caught.exception))
+        self.assertIn('restart the API',str(caught.exception))
+
     def test_http_error_shows_endpoint_and_mapping_reason(self):
         error = urllib.error.HTTPError(self.url+'/qc/claim',422,'Unprocessable Entity',{},
             io.BytesIO(b'{"detail":"Product type has no qc_variant_mapping"}'))

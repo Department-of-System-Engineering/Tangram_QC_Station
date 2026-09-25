@@ -19,11 +19,21 @@ továbbra is a digitális iker meglévő adatbázisa.
   elvárt variánst. Az észlelt variáns ettől független: eltéréskor FAIL.
   Érvényes központi azonosítás nélkül nem indít mérést.
 
-A rendeléses kiválasztás alapja a termék legutolsó `visual_qc / arrived`
-nyomonkövetési eseménye, nem a rendeléslista első eleme. Több feldolgozatlan
-érkezés esetén az iker hibát jelez. Egy fizikai `visual_qc` munkaterületet
-kezelünk. A tálca/NFC és a kamerán látott darab összerendelése a nyomonkövetés
-feladata. A tálca maradjon a kamera alatt az eredmény központi átvételéig.
+A kamera legalább öt elem észlelésekor küld `product_present: true` jelzést a
+`POST /qc/claim` kérésben. Az iker elsőként a meglévő `visual_qc / arrived`
+érkezést használja. Ennek hiányában a soron következő nyitott rendelési darabot
+választja: prioritás, rendelésdátum, tételpozíció és darabsorrend szerint.
+A kamera variánsa nem választ másik rendelést. Gyártási előzmény nélkül is működik:
+az iker a már létrehozott, várakozó termékpéldányhoz valódi QC-érkezést rögzít,
+tálca és korábbi gyártási események nélkül. A közvetlen QC utáni rework vagy
+INCONCLUSIVE darab új érkezéssel ismét vizsgálható. Több nyomon követett QC-érkezés
+továbbra is hiba. Egy fizikai QC-területhez egyszerre egy nyitott feladat tartozhat.
+
+`--claim-source tracking` elhagyja az új mezőt, és megköveteli a korábbi
+nyomonkövetési érkezést. Az alapértelmezett új működéshez a digitális iker
+`app/qc/api.py` fájlját is frissíteni kell, és az API-folyamatot újraindítani.
+Nincs új adatbázistábla vagy állomásoldali adatbázis. Régi API extra-mező hibájánál
+nem történik automatikus visszaváltás a más jelentésű nyomonkövetéses működésre.
 
 A foglalás után az első észlelt alkatrész indítja a mintavételt. Megmaradt a
 3 másodperces ablak, 15 minimális minta, 80%-os szavazás, jó zárókép és
