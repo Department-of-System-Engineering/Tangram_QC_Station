@@ -89,8 +89,8 @@ def run(args):
                     next_sync = time.monotonic() + 2
                 except urllib.error.HTTPError as error:
                     if 400 <= error.code < 500 and error.code not in (408, 429):
-                        raise RuntimeError(f"Digital twin rejected request ({error.code}); check tracking, mapping and pending results") from error
-                    print("Digital twin unavailable; results retained locally", flush=True)
+                        raise RuntimeError(f"Digital twin rejected request: {error}. Pending results retained.") from error
+                    print(f"Digital twin request failed: {error}; retrying in 5 seconds. Pending results retained.", flush=True)
                     next_sync = time.monotonic() + 5
                 except (OSError, urllib.error.URLError):
                     print("Digital twin unavailable; results retained locally", flush=True)

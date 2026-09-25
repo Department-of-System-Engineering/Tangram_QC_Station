@@ -1,5 +1,7 @@
 """Station-only tests: a real HTTP connection, synthetic camera, no database."""
 import json
+import io
+import urllib.error
 import os
 from pathlib import Path
 import socket
@@ -13,13 +15,37 @@ from unittest.mock import patch
 from uuid import uuid4
 
 from qc_station.storage import ResultStore
-from qc_station.twin import TwinClient
+from qc_station.twin import TwinClient, post_json
 from qc_station.__main__ import run
 from qc_station.variants import create_variant_profile
 from test_variants import scene
 
 
 class TwinTests(unittest.TestCase):
+    def test_http_error_shows_endpoint_and_mapping_reason(self):
+        error = urllib.error.HTTPError(self.url+'/qc/claim',422,'Unprocessable Entity',{},
+            io.BytesIO(b'{"detail":"Product type has no qc_variant_mapping"}'))
+        with patch('urllib.request.OpenerDirector.open',side_effect=error):
+            with self.assertRaises(urllib.error.HTTPError) as caught:
+                TwinClient(self.url,'test').claim()
+        self.assertEqual(caught.exception.code,422)
+        self.assertIn('/qc/claim',str(caught.exception))
+        self.assertIn('Product type has no qc_variant_mapping',str(caught.exception))
+        self.assertIn('GET /qc/variants',str(caught.exception))
+
+    def test_validation_detail_excludes_input_and_api_key_and_preserves_status(self):
+        body = {'detail':[{'loc':['body','mode'],'msg':'invalid test-key',
+                          'input':'do-not-print-input'}]}
+        error = urllib.error.HTTPError(self.url+'/qc/results',503,'Unavailable',{},
+            io.BytesIO(json.dumps(body).encode()))
+        with patch('urllib.request.OpenerDirector.open',side_effect=error):
+            with self.assertRaises(urllib.error.HTTPError) as caught:
+                post_json(self.url+'/qc/results',{})
+        self.assertEqual(caught.exception.code,503)
+        self.assertIn('body.mode',str(caught.exception))
+        self.assertNotIn('test-key',str(caught.exception))
+        self.assertNotIn('do-not-print-input',str(caught.exception))
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
