@@ -44,8 +44,11 @@ python -m qc_station run --mode manual --profile profiles/cica-v2.json
 python -m qc_station run --mode order --profile profiles/cica-v2.json --headless
 ```
 
-A `--twin-url` felülírja a `QC_TWIN_URL` környezeti változót. A `.env.example`
-csak beállítási minta: a program nem tölti be automatikusan a `.env` fájlt.
+A projekt gyökerében lévő `.env` fájlból automatikusan beolvassa a `QC_API_KEY`
+és `QC_TWIN_URL` értékét. A `.env.example` másolható kiindulási mintának.
+A már exportált változók elsőbbséget élveznek; a `--twin-url` ezeket is felülírja.
+A kulcs a fájlban is `QC_API_KEY` néven szerepeljen, az értéke az iker
+`INBOUND_API_KEY` értéke. Nem kell `source .env` parancsot futtatni.
 Hálózat nélküli helyi próbához ne állítsd be a `QC_TWIN_URL` változót, és
 használj `--mode manual` módot. Ilyenkor csak a helyi JSON és videó készül el.
 Ugyanazzal a runtime könyvtárral egyszerre egy kamerás program vagy küldő futhat.

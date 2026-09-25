@@ -18,6 +18,7 @@ from .order_context import load_order_context
 from .findings import findings
 from .twin import TwinClient
 from .fixed_layout import sample_colors
+from .config import load_environment
 
 
 def camera_source(value):
@@ -201,6 +202,7 @@ def make_event(args, profile, identifier, result, video_path):
 
 
 def main():
+    load_environment()
     parser = argparse.ArgumentParser(description="Tangram QC station")
     commands = parser.add_subparsers(dest="command", required=True)
     colors = commands.add_parser("sample-colors", help="Sample colors only; use fixed camera geometry without corner calibration")
