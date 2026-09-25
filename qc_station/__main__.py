@@ -67,6 +67,7 @@ def run(args):
     cycle_saved = False
     context = None
     next_sync = 0.0
+    product_present = False
     twin_state = "CONNECTING" if twin else "LOCAL"
     last_notice = None
 
@@ -99,8 +100,8 @@ def run(args):
                         twin_state = "RESULT_ACKNOWLEDGED"
                     else:
                         twin_state = "CONNECTED"
-                    if mode == "order" and not store.has_pending() and window.started is None and not window.finished and context is None:
-                        context = twin.claim()
+                    if mode == "order" and product_present and not store.has_pending() and window.started is None and not window.finished and context is None:
+                        context = twin.claim(product_present=getattr(args, 'claim_source', 'queue') == 'queue')
                         if context:
                             args.product_instance_id = context["product_instance_id"]
                             args.order_id = context["order_id"]
@@ -109,10 +110,10 @@ def run(args):
                             notice(f"QC job: order={args.order_id}, product={args.product_instance_id}, expected={expected_variant}")
                         else:
                             args.expected_variant = expected_variant = None
-                            twin_state = "WAITING_FOR_TRACKING"
-                            notice("Waiting for digital twin: no eligible product arrived at visual_qc. "
-                                   "Check product tracking (state=arrived, station=visual_qc), active order and product status. "
-                                   "An open order or a recognized camera variant alone does not identify a product.")
+                            twin_state = ('WAITING_FOR_ORDER' if getattr(args, 'claim_source', 'queue') == 'queue'
+                                          else 'WAITING_FOR_TRACKING')
+                            notice("Waiting for digital twin: no eligible product arrived at visual_qc and no available order unit. "
+                                   "Check active orders, queued products and variant mapping.")
                     next_sync = time.monotonic() + 2
                 except urllib.error.HTTPError as error:
                     if 400 <= error.code < 500 and error.code not in (408, 429):
@@ -145,6 +146,9 @@ def run(args):
                 frame = cv2.resize(frame, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
             started = time.perf_counter()
             result, mask = inspect(frame, profile, expected_variant)
+            if result['found_count'] >= 5 and not product_present:
+                next_sync = 0.0
+            product_present = result['found_count'] >= 5
             if not getattr(args, 'strict_quality', False):
                 result = accept_five_parts(result, profile)
             ready = mode != "order" or context is not None
@@ -186,7 +190,7 @@ def run(args):
                             notice(f"Digital twin acknowledged {delivered} result(s); central update committed.")
                     return
             if window.started is None:
-                status = (twin_state if mode == "order" and context is None else "WAITING_FOR_PRODUCT")
+                status = (twin_state if mode == "order" and context is None and product_present else "WAITING_FOR_PRODUCT")
             if not args.headless:
                 raw_frame = frame.copy()
                 cv2.putText(frame, f"{status} | parts {result['found_count']}/7 | {(time.perf_counter()-started)*1000:.0f}ms", (10, 25), 0, 0.6,
@@ -264,6 +268,8 @@ def main():
     calibration.add_argument("--legacy-base", action="store_true", help="Use old base-color calibration")
     station = commands.add_parser("run")
     station.add_argument("--mode", choices=("manual", "order"), help="manual: auto variant; order: claim actual QC arrival from digital twin")
+    station.add_argument('--claim-source', choices=('queue', 'tracking'), default='queue',
+                         help='queue: camera arrival may claim an unstarted order unit; tracking: require existing QC arrival')
     station.add_argument("--twin-url", default=os.environ.get("QC_TWIN_URL"), help="Digital twin API URL, e.g. http://twin-server:8000")
     station.add_argument("--profile", default="profiles/tangram.json")
     station.add_argument("--camera", default="0")

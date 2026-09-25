@@ -78,8 +78,11 @@ class TwinClient:
     def endpoint(self):
         return self.url + "/qc/results"
 
-    def claim(self):
-        result = post_json(self.url + "/qc/claim", {"station_id": self.station_id})
+    def claim(self, product_present=False):
+        payload = {"station_id": self.station_id}
+        if product_present:
+            payload['product_present'] = True
+        result = post_json(self.url + "/qc/claim", payload)
         if result is None:
             return None
         if not isinstance(result, dict) or result.get("station_id") != self.station_id or result.get("expected_variant") not in ("A", "B", "C", "D"):

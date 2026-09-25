@@ -53,6 +53,7 @@ class TwinTests(unittest.TestCase):
         self.received = {}
         self.claims = []
         self.claim_calls = 0
+        self.claim_payloads = []
         self.lose_ack = False
         self.bad_ack = False
         owner = self
@@ -68,6 +69,7 @@ class TwinTests(unittest.TestCase):
                     return
                 if self.path == '/qc/claim':
                     owner.claim_calls += 1
+                    owner.claim_payloads.append(body)
                     response = owner.claims.pop(0) if owner.claims else None
                 elif self.path == '/qc/results':
                     identifier = body['inspection_id']
@@ -233,6 +235,12 @@ class TwinTests(unittest.TestCase):
         self.assertEqual(event['expected_variant'], 'A')
         self.assertEqual(self.received[job['inspection_id']], event)
         self.assertIn('order=10, product=42, expected=A', self.notices)
+        self.assertTrue(self.claim_payloads[0]['product_present'])
+
+    def test_empty_camera_does_not_claim_next_order(self):
+        import numpy as np
+        self.assertEqual(self.camera('order', [np.full((480,640,3),65,np.uint8)]*12), [])
+        self.assertEqual(self.claim_calls, 0)
 
     def test_two_cycles_keep_separate_identities_and_variants(self):
         import numpy as np
