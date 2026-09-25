@@ -1,5 +1,19 @@
 # Elvégzett szoftveres ellenőrzés
 
+## Csak színmintavételes, fix sablonos beállítás, 2026-09-25
+
+Kilenc új teszt: színprofil mentése jó termék nélkül; mind a négy variáns;
+hiányzó, elfordított és rossz alakú darab; teljes termék eltolása; távoli kék
+háttérfoltok kizárása; háttérből nem gyártható sablonalak; plusz színes elem;
+fix profil/felbontás validációja; a négy színmintavételi lépés utáni mentés
+FAIL mintaképpel, sarokkijelölés nélkül. A régi alakzattanítás tesztjei megmaradtak.
+
+A 2026-09-25-i maszk-képernyőkép külön térbeli ellenőrzésében a két háttérkontúr
+kiesett és hét alkatrész maradt. Ehhez a maszkot egyszínű komponensképként,
+a képen látható munkaterület közelítő eltolásával használtuk: ez nem teljes
+szín-/variánsellenőrzés, nem nyers kameraképes elfogadási próba.
+A sablon a mostani nézet közelítő referenciája; helyszíni ellenőrzése szükséges.
+
 ## Közvetlen digitálisiker-API, 2026-09-24
 
 - Állomás: **51 sikeres teszt**, adatbázis nélkül. Valódi helyi HTTP-kapcsolaton

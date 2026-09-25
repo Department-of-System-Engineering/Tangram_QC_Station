@@ -294,7 +294,7 @@ def validate_variant_profile(p):
 
 def detect_parts(frame, profile):
     if [frame.shape[1], frame.shape[0]] != profile["frame_size"]:
-        raise ValueError("Variant calibration requires the same processing resolution")
+        raise ValueError("Camera frame must match the profile resolution")
     x, y, w, h = profile["roi"]
     if "color_model" in profile:
         masks = palette_masks(frame[y:y+h, x:x+w], profile["color_model"])

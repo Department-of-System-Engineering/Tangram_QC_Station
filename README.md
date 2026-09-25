@@ -6,8 +6,8 @@ az új belépési pont: `python -m qc_station`.
 
 ## Mit tud az új változat?
 
-- Az új (v2) kalibráció az alkatrészek színét, kontúrját és egymáshoz viszonyított
-  helyzetét tanulja; az alap színét nem használja.
+- Rögzített kameránál elég a színek mintavétele: a hét alakzatot előre megadott
+  sablon alapján ellenőrzi. A teljes sarokkijelöléses tanítás opcionális.
 - A–D variáns felismerése, rendelés szerinti elvárt variáns ellenőrzése,
   külön geometriai, relatív helyzeti, párhuzamossági/merőlegességi és színpontszám.
 - Alapértelmezésben **3 másodperces vizsgálat**, legfeljebb 10 elemzett kép/s.
@@ -39,8 +39,9 @@ python -m qc_station run --mode order --profile profiles/cica-v2.json --twin-url
 [Natív Raspberry-telepítés és beállítás](docs/deployment.md).
 Az INCONCLUSIVE mérési hibát jelent, nem módosít termékstátuszt.
 
-**Rögzített kamera és közel azonos termékirány** szükséges. A v2 kis elfordulást,
-eltolást és egyenletes skálaváltozást közösen illeszt a hét elem alapján.
+**Rögzített kamera és közel azonos termékirány** szükséges. A tanított v2 profil kis elfordulást,
+eltolást és egyenletes skálaváltozást közösen illeszt a hét elem alapján; a fix
+sablonos, csak színmintás profil ezeket nem kompenzálja.
 Tetszőleges forgatást, tükrözést és perspektívaváltozást nem kezel. A kalibrált
 munkaterület és feldolgozási felbontás maradjon ugyanaz. A kalibrált piros/sárga/kék
 elemeknek optikailag elkülöníthetőknek kell lenniük: egymáshoz érő azonos színű
@@ -69,9 +70,39 @@ csomagja, `python3 -m venv --system-site-packages .venv` környezettel. CSI/Pica
 kameraadapter ebben a változatban még nincs. A konkrét Pi-modell és kamera nincs
 megadva, ezért a kompatibilitás és a sebesség helyszíni ellenőrzést igényel.
 
-## Kalibráció – kódmódosítás nélkül
+## Beállítás csak színmintavétellel
 
-Az új alapértelmezett módban ismert, jó A/B/C/D termék kell. A képen lévő
+A jelenlegi 640×480-as kameranézethez beépített macskasablon készült a
+2026-09-25-i kép alapján. Nem kell alakzatsarkokat kijelölni vagy egy jó terméket
+elfogadtatni a színbeállítás mentéséhez.
+
+```bash
+python -m qc_station sample-colors --camera 0 --output profiles/cica-v2.json
+python -m qc_station run --mode manual --profile profiles/cica-v2.json
+```
+
+1. SPACE: kép rögzítése.
+2. Sorban piros, sárga, kék, majd háttér: jelölj ki kis, egynemű téglalapokat.
+   ENTER rögzít egy mintát, további téglalapokkal bővíthető; ESC lép tovább.
+3. A háttérből a kék lap világos és sötét részeit, valamint az alapot is mintázd.
+   A kék alkatrész és a kék háttér külön mintacsoportba tartozik.
+4. A végén a zöld vonalak a fix sablont mutatják, nem a mért kontúrokat.
+   `S` menti a színeket akkor is, ha az aktuális kép FAIL. Ez nem fogadja el a terméket.
+   Ha a sablon nem illeszkedik a kamera nézetéhez, `Q`.
+
+Futáskor továbbra is ellenőrzi az alakot, területet, rögzített helyzetet, szögeket,
+élkapcsolatokat, darabszámot és variánst. A termék eltolását vagy elfordulását ebben
+a módban nem illeszti vissza a referenciahelyre. A sablon a jelenlegi kameraállásra
+vonatkozik; másik fix recept a `--layout` JSON-paraméterrel adható meg. Nyers mentett
+képen is mintázhatsz: `sample-colors --image .../frame.png`.
+
+A sablon a háttérfoltok térbeli szűrésére szolgál, nem vágja formára a kontúrokat.
+A vizsgálati helyektől távoli tárgyak nem részei a darabszámellenőrzésnek.
+Alkatrészhez hozzáolvadt háttér vagy fel nem ismert elem továbbra is hibát okozhat.
+
+## Opcionális teljes alakzatkalibráció
+
+A `calibrate` sarokkijelöléses módhoz ismert, jó A/B/C/D termék kell. A képen lévő
 narancssárgát pirosnak vesszük; a kép alatti prezentációs feliratok nem részei a receptnek.
 A bal/jobb fül az álló referenciarajz szerinti bal/jobb, akkor is, ha a kamera más
 szögből látja a terméket.

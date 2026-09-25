@@ -44,7 +44,7 @@ def run(args):
         args.order_id = context.order_id
     profile = load_profile(args.profile)
     if mode in ("manual", "order") and profile.get("schema_version") != 2:
-        raise ValueError("Manual/order modes require a v2 variant calibration")
+        raise ValueError("Manual/order modes require a v2 profile; use sample-colors or optional calibrate")
     expected_variant = getattr(args, "expected_variant", None)
     if expected_variant and profile.get("schema_version") != 2:
         raise ValueError("Expected variant requires a new part-based calibration")

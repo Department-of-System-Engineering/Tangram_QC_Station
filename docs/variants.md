@@ -1,5 +1,27 @@
 # Alkatrészalapú felismerés és pontozás (v2)
 
+## Fix geometriával, csak színmintákból
+
+A `sample-colors` parancs `geometry_mode: fixed` v2 profilt ment. A referencia
+a beépített kamera-elrendezésből származik, nem a mintaképen detektált darabokból.
+Ezért a színprofil mentéséhez nem kell teljes/jó termék vagy sarokkijelölés.
+A maszkból mért daraboknak futáskor ettől még meg kell felelniük minden ellenőrzésen.
+
+Fix módban az észlelt kontúrok az eredeti képi koordinátákban párosulnak a sablonhoz,
+a kép hosszabb oldalával normálva; nincs közös pozíció-/forgás-visszaillesztés.
+A pozíciótűrés 0,025, azaz 640 pixeles képnél 16 pixel. A többi pontozási tűrés
+és súly változatlan. A sablonok 12 pixellel bővített uniója határozza meg a
+vizsgálati helyeket: a kontúrterület legalább 80%-ának ide kell esnie.
+A mérés mindig a teljes eredeti kontúron történik, nincs sablonra vágás vagy
+hiányzó rész referenciából történő pótlása. A távoli tárgyak nem vizsgált darabok.
+
+Az alapértelmezett recept a felhasználó 2026-09-25-i kameraállásából készült
+közelítő referencia. Az előnézetben ellenőrizni kell az illeszkedését; ez nem
+tetszőleges kameranézetet felismerő modell. Világításváltozáskor új színminták
+kellenek, kameraáthelyezéskor másik fix recept vagy teljes geometriai tanítás.
+
+## Tanított geometriájú profilok
+
 Az alap előírt színe, geometriája és a régi kézi maszkhidak nem szerepelnek a v2 feldolgozásban.
 Egy jó minta hét, név szerint kijelölt poligonjából a rendszer geometriát és
 színosztályokat tanul. Az új profil Lab-palettát tartalmaz a három alkatrészszínhez

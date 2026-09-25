@@ -3,7 +3,7 @@
 Az állomás önálló Python-program, OpenCV és NumPy függőségekkel. Nincs saját
 adatbázisa, adatbázis-jelszava, webszervere vagy Docker-szolgáltatása.
 
-## Telepítés és kalibráció
+## Telepítés és színmintavétel
 
 64 bites Raspberry OS és OpenCV/V4L2 által elérhető kamera esetén:
 
@@ -11,13 +11,15 @@ adatbázisa, adatbázis-jelszava, webszervere vagy Docker-szolgáltatása.
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
-python -m qc_station calibrate --camera 0 --variant A --output profiles/cica-v2.json
+python -m qc_station sample-colors --camera 0 --output profiles/cica-v2.json
 ```
 
 Ha az adott Pi/Python verzióhoz nincs OpenCV wheel, a rendszer `python3-opencv`
 és `python3-numpy` csomagja használható `--system-site-packages` virtuális
-környezettel. A kalibráció ablakos munkamenetet igényel. A profilhoz tartozó
-kamerapozíciót, munkaterületet és képfelbontást tartsd meg.
+környezettel. A színmintavétel ablakos munkamenetet igényel. SPACE után adj
+piros/sárga/kék és háttérmintákat; nem kell alakzatsarkokat kijelölni. A fix
+sablon a 2026-09-25-i, 640×480-as kameranézethez tartozik. Más kameraállásnál
+másik fix sablon vagy az opcionális teljes `calibrate` mód használható.
 
 ## Kapcsolat a meglévő digitális ikerrel
 

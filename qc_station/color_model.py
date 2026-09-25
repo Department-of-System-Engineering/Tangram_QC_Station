@@ -30,7 +30,7 @@ def palette_from_samples(samples):
     for label in LABELS:
         pixels = np.asarray(samples[label], np.float32).reshape(-1, 3)
         if len(pixels) < 25:
-            raise ValueError(f"Too few {label} pixels: enlarge work area margin or check corners")
+            raise ValueError(f"Too few {label} pixels: select at least 25 interior color/background pixels")
         pixels = pixels[np.linspace(0, len(pixels)-1, min(len(pixels), 4096), dtype=int)]
         k = min(8, len(np.unique(pixels, axis=0)))
         cv2.setRNGSeed(41)
