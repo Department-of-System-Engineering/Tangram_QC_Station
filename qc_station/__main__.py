@@ -17,6 +17,7 @@ from .variant_calibration import calibrate_variants
 from .order_context import load_order_context
 from .findings import findings
 from .twin import TwinClient
+from .fixed_layout import sample_colors
 
 
 def camera_source(value):
@@ -202,6 +203,11 @@ def make_event(args, profile, identifier, result, video_path):
 def main():
     parser = argparse.ArgumentParser(description="Tangram QC station")
     commands = parser.add_subparsers(dest="command", required=True)
+    colors = commands.add_parser("sample-colors", help="Sample colors only; use fixed camera geometry without corner calibration")
+    colors.add_argument("--camera", default="0")
+    colors.add_argument("--image")
+    colors.add_argument("--output", default="profiles/tangram.json")
+    colors.add_argument("--layout", help="Optional fixed-layout JSON; default: current 640x480 cat camera view")
     calibration = commands.add_parser("calibrate", help="Learn shapes/colors from a good product")
     calibration.add_argument("--camera", default="0")
     calibration.add_argument("--image")
@@ -232,7 +238,9 @@ def main():
     sender.add_argument("--directory", default="runtime/delivery")
     args = parser.parse_args()
     try:
-        if args.command == "calibrate":
+        if args.command == "sample-colors":
+            sample_colors(camera_source(args.camera), args.output, args.image, args.layout)
+        elif args.command == "calibrate":
             if args.legacy_base:
                 calibrate(camera_source(args.camera), args.output, args.image)
             elif not args.variant and not args.resume:

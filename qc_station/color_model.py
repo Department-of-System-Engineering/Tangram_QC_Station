@@ -21,9 +21,14 @@ def learn_palette(frame, polygons, colors, roi):
     background[y:y+h, x:x+w] = 255
     background[cv2.dilate(selected, np.ones((7, 7), np.uint8)) > 0] = 0
     samples["background"].append(lab[background > 0])
+    return palette_from_samples({label: np.concatenate(samples[label]) for label in LABELS})
+
+
+def palette_from_samples(samples):
+    """Build the same bounded Lab model from explicit color/background swatches."""
     model = {"space": "LAB", "centers": {}, "max_distance_squared": {}}
     for label in LABELS:
-        pixels = np.concatenate(samples[label]).astype(np.float32)
+        pixels = np.asarray(samples[label], np.float32).reshape(-1, 3)
         if len(pixels) < 25:
             raise ValueError(f"Too few {label} pixels: enlarge work area margin or check corners")
         pixels = pixels[np.linspace(0, len(pixels)-1, min(len(pixels), 4096), dtype=int)]

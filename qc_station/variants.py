@@ -255,12 +255,21 @@ def validate_variant_profile(p):
     x, y, w, h = roi
     if min(x, y) < 0 or min(w, h) < 20 or x+w > dims[0] or y+h > dims[1]:
         raise ValueError("Work area outside image")
+    if p.get("geometry_mode", "learned") not in ("learned", "fixed"):
+        raise ValueError("Unknown geometry mode")
+    fixed = p.get("geometry_mode") == "fixed"
+    if fixed and (type(p.get("search_margin_pixels")) is not int or not 1 <= p["search_margin_pixels"] <= 30):
+        raise ValueError("Invalid fixed-layout search margin")
     if [part.get("name") for part in p.get("parts", [])] != list(PART_NAMES):
         raise ValueError("Seven named parts required in reference order")
     for part, vertices in zip(p["parts"], (3, 3, 4, 4, 3, 3, 3)):
         a = np.asarray(part["contour"], np.float32)
         if a.shape != (vertices, 1, 2) or not np.isfinite(a).all() or (a < 0).any() or (a > 1).any() or cv2.contourArea(a) <= 0 or not cv2.isContourConvex(a):
             raise ValueError("Each part must be a convex triangle or quadrilateral")
+        if fixed:
+            pixels = a.reshape(-1, 2)*max(dims)
+            if (pixels <= [x, y]).any() or (pixels >= [x+w-1, y+h-1]).any():
+                raise ValueError("Fixed part outside work area")
     for color in ("red", "yellow", "blue"):
         a = np.asarray(p["colors"][color])
         if a.shape != (2, 3) or not np.isfinite(a).all() or (a != np.floor(a)).any() or (a < 0).any() or (a > [179, 255, 255]).any() or (a[0, 1:] > a[1, 1:]).any():
@@ -296,6 +305,16 @@ def detect_parts(frame, profile):
     found = []
     debug = np.zeros((h, w), np.uint8)
     occupied = np.zeros((h, w), np.uint8)
+    search = None
+    if profile.get("geometry_mode") == "fixed":
+        search = np.zeros_like(occupied)
+        polygons = [np.rint(np.asarray(part["contour"])*max(profile["frame_size"])-[x, y]).astype(np.int32)
+                    for part in profile["parts"]]
+        # Separate drawing calls keep overlapping search polygons a union.
+        for polygon in polygons:
+            cv2.fillPoly(search, [polygon], 255)
+        margin = profile["search_margin_pixels"]
+        search = cv2.dilate(search, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2*margin+1, 2*margin+1)))
     for color, mask in masks.items():
         # Ambiguous color pixels cannot be evidence for two pieces.
         others = np.zeros_like(mask)
@@ -314,6 +333,13 @@ def detect_parts(frame, profile):
             cx, cy, cw, ch = cv2.boundingRect(c)
             if cx == 0 or cy == 0 or cx+cw >= w or cy+ch >= h:
                 continue  # colored background crossing the work-area boundary
+            if search is not None:
+                component = np.zeros_like(mask)
+                cv2.drawContours(component, [c], -1, 255, -1)
+                if np.count_nonzero((component > 0) & (search > 0)) < .8*np.count_nonzero(component):
+                    continue  # outside fixed inspection locations, e.g. blue board rim
+                # Never clip a component to a template: that could manufacture
+                # a valid triangle from background or a merged/damaged piece.
             inside = interior_mask(mask.shape, c) > 0
             fractions = {name: float(np.count_nonzero((m > 0) & inside) / max(1, inside.sum()))
                          for name, m in masks.items()}
@@ -377,9 +403,12 @@ def inspect_variants(frame, profile, expected_variant=None):
     if not detected or len(detected) > 16:
         return result, debug
     reference = [np.asarray(p["contour"], np.float32) for p in profile["parts"]]
-    observed = normalize([d["contour"] for d in detected])
+    fixed = profile.get("geometry_mode") == "fixed"
+    observed = ([(d["contour"] + np.array(profile["roi"][:2], np.float32))/max(profile["frame_size"])
+                 for d in detected] if fixed else normalize([d["contour"] for d in detected]))
     mapping = assign_parts(reference, observed)
-    observed = align(reference, observed, mapping)
+    if not fixed:
+        observed = align(reference, observed, mapping)
     limits = profile["thresholds"]
     edge_maps, colors, fractions, geometry_scores = {}, {}, {}, []
     for i, name in enumerate(PART_NAMES):
