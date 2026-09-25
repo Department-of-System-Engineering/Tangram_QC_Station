@@ -19,6 +19,7 @@ from .findings import findings
 from .twin import TwinClient
 from .fixed_layout import sample_colors
 from .config import load_environment
+from .diagnostics import save_detection
 
 
 def camera_source(value):
@@ -65,6 +66,15 @@ def run(args):
     cycle_saved = False
     context = None
     next_sync = 0.0
+    twin_state = "CONNECTING" if twin else "LOCAL"
+    last_notice = None
+
+    def notice(message):
+        nonlocal last_notice
+        if message != last_notice:
+            print(message, flush=True)
+            last_notice = message
+
     try:
         store = ResultStore(Path(args.output) / "delivery")
         cap = cv2.VideoCapture(camera_source(args.camera))
@@ -79,7 +89,15 @@ def run(args):
             idle = window.started is None or window.finished
             if twin and idle and time.monotonic() >= next_sync:
                 try:
-                    store.flush(twin.endpoint)
+                    delivered = store.flush(twin.endpoint)
+                    if delivered:
+                        notice(f"Digital twin acknowledged {delivered} result(s); central update committed.")
+                    if store.has_pending():
+                        twin_state = "PENDING_RESULTS"
+                    elif delivered or twin_state == "RESULT_ACKNOWLEDGED":
+                        twin_state = "RESULT_ACKNOWLEDGED"
+                    else:
+                        twin_state = "CONNECTED"
                     if mode == "order" and not store.has_pending() and window.started is None and not window.finished and context is None:
                         context = twin.claim()
                         if context:
@@ -87,14 +105,23 @@ def run(args):
                             args.order_id = context["order_id"]
                             args.arrival_event_id = context["arrival_event_id"]
                             args.expected_variant = expected_variant = context["expected_variant"]
+                            notice(f"QC job: order={args.order_id}, product={args.product_instance_id}, expected={expected_variant}")
+                        else:
+                            args.expected_variant = expected_variant = None
+                            twin_state = "WAITING_FOR_TRACKING"
+                            notice("Waiting for digital twin: no eligible product arrived at visual_qc. "
+                                   "Check product tracking (state=arrived, station=visual_qc), active order and product status. "
+                                   "An open order or a recognized camera variant alone does not identify a product.")
                     next_sync = time.monotonic() + 2
                 except urllib.error.HTTPError as error:
                     if 400 <= error.code < 500 and error.code not in (408, 429):
                         raise RuntimeError(f"Digital twin rejected request: {error}. Pending results retained.") from error
                     print(f"Digital twin request failed: {error}; retrying in 5 seconds. Pending results retained.", flush=True)
+                    twin_state = "TWIN_UNAVAILABLE"
                     next_sync = time.monotonic() + 5
                 except (OSError, urllib.error.URLError):
                     print("Digital twin unavailable; results retained locally", flush=True)
+                    twin_state = "TWIN_UNAVAILABLE"
                     next_sync = time.monotonic() + 5
             ok, frame = cap.read()
             if not ok:
@@ -147,14 +174,18 @@ def run(args):
                 cycle_saved = True
                 print(json.dumps(event, allow_nan=False), flush=True)
                 context = None
+                twin_state = "RESULT_PENDING" if twin else "LOCAL"
                 next_sync = 0
                 if args.once:
                     if twin:
-                        store.flush(twin.endpoint)
+                        delivered = store.flush(twin.endpoint)
+                        if delivered:
+                            notice(f"Digital twin acknowledged {delivered} result(s); central update committed.")
                     return
             if window.started is None:
-                status = "WAITING"
+                status = (twin_state if mode == "order" and context is None else "WAITING_FOR_PRODUCT")
             if not args.headless:
+                raw_frame = frame.copy()
                 cv2.putText(frame, f"{status} | parts {result['found_count']}/7 | {(time.perf_counter()-started)*1000:.0f}ms", (10, 25), 0, 0.6,
                             (0, 255, 0) if status == "PASS" else (0, 200, 255), 2)
                 cv2.imshow("Tangram QC", frame)
@@ -162,10 +193,21 @@ def run(args):
                     cv2.imshow("Detection mask", mask)
                 if profile.get("schema_version") == 2:
                     # A separate line exposes identity independently of PASS/FAIL.
-                    cv2.putText(frame, f"Variant: {result['detected_variant'] or '?'} | expected: {expected_variant or 'auto'} | score: {result['quality_score']:.1f}",
+                    expected_label = expected_variant or ("awaiting order" if mode == "order" else "auto")
+                    cv2.putText(frame, f"Variant: {result['detected_variant'] or '?'} | expected: {expected_label} | score: {result['quality_score']:.1f}",
                                 (10, 48), 0, .5, (255, 255, 255), 1)
+                    detail = (f"Order {args.order_id} | product {args.product_instance_id}" if context else twin_state)
+                    if window.started is not None:
+                        detail += f" | samples {window.samples}/{args.min_samples}"
+                    cv2.putText(frame, detail, (10, 70), 0, .45, (255, 255, 255), 1)
+                    failures = result['reasons'] + [f"{p['name']}:{','.join(p['reasons'])}" for p in result['parts'] if p['reasons']]
+                    cv2.putText(frame, ("Check: " + '; '.join(failures))[:100], (10, 92), 0, .4, (0, 200, 255), 1)
                     cv2.imshow("Tangram QC", frame)
-                if cv2.waitKey(1) & 255 == ord("q"):
+                key = cv2.waitKey(1) & 255
+                if key == ord("d"):
+                    folder = save_detection(raw_frame, profile, result, mask, args.output)
+                    print(f"Detection diagnostics saved: {folder}", flush=True)
+                if key == ord("q"):
                     if identifier and not window.finished and window.started is not None:
                         store.save(make_event(args, profile, identifier, {
                             "status": "INCONCLUSIVE", "reason": "operator_cancelled",

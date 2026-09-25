@@ -181,7 +181,7 @@ class TwinTests(unittest.TestCase):
         ticks = iter(i*.11 for i in range(1000))
         with patch('qc_station.__main__.cv2.VideoCapture') as capture, \
              patch('qc_station.__main__.time',SimpleNamespace(monotonic=lambda:next(ticks),perf_counter=time.perf_counter)), \
-             patch('builtins.print'):
+             patch('builtins.print') as printer:
             capture.return_value.isOpened.return_value = True
             capture.return_value.read.side_effect = [(True,frame.copy()) for frame in frames]+[(False,None)]
             if once and self.claims or mode=='manual':
@@ -189,6 +189,7 @@ class TwinTests(unittest.TestCase):
             else:
                 with self.assertRaisesRegex(RuntimeError,'Camera read failed'):
                     run(args)
+            self.notices = ' '.join(str(call.args[0]) for call in printer.call_args_list)
         store = ResultStore(self.folder/'delivery')
         try:
             return store.events()
@@ -218,6 +219,20 @@ class TwinTests(unittest.TestCase):
         image, _ = scene('A')
         self.assertEqual(self.camera('order',[image]*12),[])
         self.assertEqual(self.received,{})
+        self.assertIn('no eligible product arrived at visual_qc', self.notices)
+
+    def test_order_pass_is_sent_for_the_claimed_product_and_order(self):
+        job = self.context('A', 42)
+        self.claims.append(job)
+        image, _ = scene('A')
+        event, = self.camera('order', [image]*12)
+        self.assertEqual(event['result']['status'], 'PASS')
+        self.assertEqual(event['product_instance_id'], 42)
+        self.assertEqual(event['order_id'], job['order_id'])
+        self.assertEqual(event['arrival_event_id'], job['arrival_event_id'])
+        self.assertEqual(event['expected_variant'], 'A')
+        self.assertEqual(self.received[job['inspection_id']], event)
+        self.assertIn('order=10, product=42, expected=A', self.notices)
 
     def test_two_cycles_keep_separate_identities_and_variants(self):
         import numpy as np

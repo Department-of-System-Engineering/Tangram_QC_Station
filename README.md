@@ -39,6 +39,21 @@ python -m qc_station run --mode order --profile profiles/cica-v2.json --twin-url
 [Natív Raspberry-telepítés és beállítás](docs/deployment.md).
 Az INCONCLUSIVE mérési hibát jelent, nem módosít termékstátuszt.
 
+Rendeléses módban a `WAITING_FOR_TRACKING` azt jelenti, hogy az iker nem adott
+vizsgálati feladatot. A termék legutóbbi nyomonkövetési eseménye `visual_qc` / `arrived`
+legyen, aktív rendeléshez és vizsgálható termékhez tartozzon. A terminál kiírja az
+átvett rendelés-, termékazonosítót és a várt variánst. A `RESULT_ACKNOWLEDGED` a
+központi eredménymentés visszaigazolása. PASS esetén az iker a kapcsolódó terméket
+`done` állapotba állítja, és annak rendelési sorában frissíti a `completed_quantity`
+értéket; az ismételt eredményküldés nem növeli újra a darabszámot.
+
+Az ablakban **D** menti a nyers képet, maszkot, felismert kontúrjelölteket,
+profilt és kiértékelést a `runtime/diagnostics/` könyvtárba. Ez például a 8/7
+darabszám okának vizsgálatához használható; nem indít és nem fogad el mérést.
+Ha egy kép feldolgozása kb. 700 ms, a 3 másodperc kevés 15 mintához:
+használj például `--seconds 15` értéket. Ez csak a mintaszámhoz ad több időt,
+a geometriai és variánshibákat nem teszi elfogadhatóvá.
+
 **A v2 profilok a termék síkbeli elfordulását a teljes 360°-os tartományban kezelik**,
 a korábban mentett, csak színmintás profilok is. Az eltolást és egyenletes
 skálaváltozást a felismert elemek közös illesztése kompenzálja. Az egyes darabok

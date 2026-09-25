@@ -10,6 +10,7 @@ import numpy as np
 from qc_station.fixed_layout import CAT_LAYOUT, create_color_profile, sample_colors
 from qc_station.variants import VARIANTS, inspect_variants, validate_variant_profile
 from qc_station.vision import load_profile
+from qc_station.diagnostics import save_detection
 
 
 COLORS = {"red": (20, 30, 210), "yellow": (10, 220, 240),
@@ -34,6 +35,16 @@ class FixedLayoutTests(unittest.TestCase):
     def test_sampling_does_not_require_a_complete_good_product(self):
         self.assertEqual(self.profile["geometry_mode"], "fixed")
         self.assertFalse(inspect_variants(np.zeros((480, 640, 3), np.uint8), self.profile)[0]["passed"])
+
+    def test_diagnostics_preserves_raw_frame_profile_and_measurement(self):
+        frame = scene()
+        result, mask = inspect_variants(frame, self.profile)
+        with tempfile.TemporaryDirectory() as directory:
+            folder = save_detection(frame, self.profile, result, mask, directory)
+            self.assertTrue(np.array_equal(cv2.imread(str(folder/'frame.png')), frame))
+            self.assertEqual(json.loads((folder/'result.json').read_text()), result)
+            self.assertEqual(json.loads((folder/'profile.json').read_text()), self.profile)
+            self.assertTrue((folder/'candidates.png').is_file())
 
     def test_all_variants_and_expected_variant_are_checked(self):
         for variant in "ABCD":
